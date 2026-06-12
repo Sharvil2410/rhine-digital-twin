@@ -277,6 +277,9 @@
 // Optional: paste a Google Maps Platform key to switch the globe to
 // Google Photorealistic 3D Tiles (the "Google Earth" look).
 const GOOGLE_MAPS_API_KEY = "";
+// Optional: paste a free Cesium ion token to use Cesium World Terrain.
+// Without it the dashboard tries Esri's public world elevation service.
+const CESIUM_ION_TOKEN = "";
 
 const DATA = window.DASHBOARD_DATA;
 const PEGEL_API = "https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations";
@@ -311,6 +314,23 @@ async function tryGoogle3D() {
 }
 tryGoogle3D();
 
+/* 3D terrain: Cesium World Terrain when an ion token is configured,
+   otherwise Esri's public world elevation service; ellipsoid fallback. */
+async function initTerrain() {
+  if (GOOGLE_MAPS_API_KEY) return;                 // Google tiles carry their own 3D
+  try {
+    if (CESIUM_ION_TOKEN) {
+      Cesium.Ion.defaultAccessToken = CESIUM_ION_TOKEN;
+      viewer.terrainProvider = await Cesium.createWorldTerrainAsync();
+    } else {
+      viewer.terrainProvider = await Cesium.ArcGISTiledElevationTerrainProvider.fromUrl(
+        "https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer");
+    }
+    viewer.scene.requestRender();
+  } catch (e) { console.warn("3D terrain unavailable — flat ellipsoid kept:", e); }
+}
+initTerrain();
+
 const HOME = {
   destination: Cesium.Cartesian3.fromDegrees(8.05, 49.45, 185000),
   orientation: { heading: Cesium.Math.toRadians(331), pitch: Cesium.Math.toRadians(-38), roll: 0 },
@@ -323,9 +343,10 @@ viewer.homeButton.viewModel.command.beforeExecute.addEventListener(e => {
 for (const st of DATA.stations) {
   viewer.entities.add({
     id: st.key,
-    position: Cesium.Cartesian3.fromDegrees(st.lon, st.lat, 30),
+    position: Cesium.Cartesian3.fromDegrees(st.lon, st.lat, 0),
     point: { pixelSize: 13, color: Cesium.Color.fromCssColorString("#38bdf8"),
              outlineColor: Cesium.Color.WHITE, outlineWidth: 3,
+             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
              disableDepthTestDistance: Number.POSITIVE_INFINITY },
     label: { text: st.name, font: "600 14px 'Segoe UI', sans-serif",
              fillColor: Cesium.Color.WHITE,
@@ -333,24 +354,47 @@ for (const st of DATA.stations) {
              backgroundPadding: new Cesium.Cartesian2(8, 5),
              pixelOffset: new Cesium.Cartesian2(0, -24),
              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
              disableDepthTestDistance: Number.POSITIVE_INFINITY },
   });
 }
 
 /* thalweg + SWOT centerline draped on the imagery */
 const PROF = DATA.profile;
-function addReachLine(coords, css, width) {
-  // plain polylines slightly above the ellipsoid — ground-clamped polylines
-  // (shadow volumes) are too slow on weak GPUs for 300+ km lines
+/* Lines follow the river's 3D descent using the SWOT water-surface profile
+   (km -> WSE) instead of ground clamping — clamped 320-km polylines render
+   via shadow volumes and hang this GPU against real terrain. */
+const WSE_PROFILE = PROF.swot_high.pts;          // [[km, wse_m, date], ...] sorted by km
+function wseAtKm(km) {
+  const a = WSE_PROFILE;
+  if (km <= a[0][0]) return a[0][1];
+  if (km >= a[a.length - 1][0]) return a[a.length - 1][1];
+  let lo = 0, hi = a.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (a[m][0] <= km) lo = m; else hi = m; }
+  const [k0, w0] = a[lo], [k1, w1] = a[hi];
+  return w0 + (w1 - w0) * (km - k0) / ((k1 - k0) || 1);
+}
+const KM_SEARCH = PROF.thalweg_geom.filter((_, i) => i % 4 === 0);
+function nearestKm(lon, lat) {
+  let best = Infinity, km = 0;
+  for (const q of KM_SEARCH) {
+    const dx = q[0] - lon, dy = q[1] - lat, d = dx * dx + dy * dy;
+    if (d < best) { best = d; km = q[2]; }
+  }
+  return km;
+}
+const LINE_LIFT = 10;                            // metres above the water surface
+function addReachLine(coords, css, width, kmOf) {
   const flat = [];
-  for (const p of coords) flat.push(p[0], p[1], 40);
+  for (const p of coords) flat.push(p[0], p[1], wseAtKm(kmOf(p)) + LINE_LIFT);
   return viewer.entities.add({ polyline: {
     positions: Cesium.Cartesian3.fromDegreesArrayHeights(flat),
     width, material: Cesium.Color.fromCssColorString(css).withAlpha(0.92),
   }});
 }
-const thalwegEnt = addReachLine(PROF.thalweg_geom, "#3b82f6", 3);
-const centerEnts = PROF.centerline_parts.map(p => addReachLine(p, "#ef4444", 3));
+const thalwegEnt = addReachLine(PROF.thalweg_geom, "#3b82f6", 3, p => p[2]);
+const centerEnts = PROF.centerline_parts.map(part =>
+  addReachLine(part, "#ef4444", 3, p => nearestKm(p[0], p[1])));
 
 /* PANGAEA DEM drape (built by build_dem_layers.py — absent until first build).
    Two renderings per layer: grayscale hillshade and color relief; an intensity
