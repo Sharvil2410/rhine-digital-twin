@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rhine Digital Twin — SWOT × In-situ</title>
+
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Cesium.js"></script>
+<link href="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<script src="data/stations_data.js"></script>
+<script src="data/dem_layers.js"></script>
+
+<style>
+  :root {
+    --panel-bg: #ffffff;
+    --glass: rgba(16, 24, 38, 0.82);
+    --glass-border: rgba(255, 255, 255, 0.14);
+    --accent: #38bdf8;
+    --text-light: #f1f5f9;
+    --text-dim: #94a3b8;
+    --insitu: #1f77b4;
+    --dahiti: #ff7f0e;
+    --live: #16a34a;
+    --swot: #d62728;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif; }
+  #map { position: absolute; inset: 0; }
+
+  /* ---------- header ---------- */
+  #header {
+    position: absolute; top: 14px; left: 14px; z-index: 30;
+    background: var(--glass); border: 1px solid var(--glass-border);
+    backdrop-filter: blur(8px); border-radius: 14px;
+    padding: 12px 16px; color: var(--text-light); max-width: 430px;
+  }
+  #header h1 { margin: 0; font-size: 17px; letter-spacing: .2px; }
+  #header h1 span { color: var(--accent); }
+  #header p { margin: 4px 0 10px; font-size: 12px; color: var(--text-dim); }
+  #stationChips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    border: 1px solid var(--glass-border); background: rgba(255,255,255,.06);
+    color: var(--text-light); border-radius: 999px; padding: 5px 12px;
+    font-size: 12.5px; cursor: pointer; transition: all .15s;
+  }
+  .chip:hover { background: rgba(56,189,248,.25); }
+  .chip.active { background: var(--accent); color: #06283d; font-weight: 600; border-color: transparent; }
+  .chip .dot { display: inline-block; width: 10px; height: 10px; border-radius: 99px;
+    margin-right: 6px; vertical-align: -1px; }
+  .chip.off { opacity: .4; }
+  #aboutBtn { margin-left: auto; }
+  .segBtn { border: 1px solid #cbd5e1; background: #f8fafc; color: #334155;
+    border-radius: 8px; padding: 6px 12px; font-size: 12.5px; cursor: pointer; }
+  .segBtn.active { background: #0ea5e9; border-color: #0ea5e9; color: white; font-weight: 600; }
+
+  /* ---------- right panel ---------- */
+  #panel {
+    position: absolute; top: 0; right: 0; height: 100%; width: 560px; max-width: 100vw;
+    background: var(--panel-bg); z-index: 20; box-shadow: -8px 0 30px rgba(0,0,0,.35);
+    transform: translateX(105%); transition: transform .35s ease; display: flex; flex-direction: column;
+  }
+  #panel.open { transform: translateX(0); }
+  #panelHeader { padding: 14px 18px 10px; border-bottom: 1px solid #e2e8f0; }
+  #panelHeader .row1 { display: flex; align-items: baseline; gap: 10px; }
+  #panelHeader h2 { margin: 0; font-size: 20px; color: #0f172a; }
+  #panelHeader .meta { font-size: 12px; color: #64748b; }
+  #closeBtn { margin-left: auto; border: none; background: #f1f5f9; border-radius: 8px;
+    width: 30px; height: 30px; font-size: 15px; cursor: pointer; color: #334155; }
+  #liveChips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .liveChip { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534;
+    border-radius: 8px; padding: 5px 10px; font-size: 12px; }
+  .liveChip b { font-size: 13.5px; }
+  .liveChip.stale { background: #fafaf9; border-color: #e7e5e4; color: #78716c; }
+  .liveChip.dahiti { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+
+  #tabs { display: flex; gap: 4px; padding: 10px 18px 0; }
+  .tab { border: none; background: #f1f5f9; color: #475569; padding: 8px 16px;
+    border-radius: 9px 9px 0 0; font-size: 13.5px; cursor: pointer; font-weight: 600; }
+  .tab.active { background: #0ea5e9; color: white; }
+
+  #panelBody { flex: 1; overflow-y: auto; padding: 12px 18px 20px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    font-size: 12.5px; color: #334155; margin-bottom: 6px; }
+  .controls label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .controls .group { display: flex; gap: 10px; align-items: center;
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 10px; }
+  .controls .group b { color: #0f172a; font-weight: 600; }
+  .plot { width: 100%; height: 380px; }
+
+  .metricsCard { margin-top: 10px; background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: 10px; padding: 10px 14px; }
+  .metricsCard h4 { margin: 0 0 8px; font-size: 12.5px; color: #475569;
+    text-transform: uppercase; letter-spacing: .4px; }
+  .metricsGrid { display: flex; flex-wrap: wrap; gap: 18px; }
+  .metric { min-width: 70px; }
+  .metric .v { font-size: 17px; font-weight: 650; color: #0f172a; }
+  .metric .k { font-size: 11px; color: #64748b; }
+  .note { font-size: 11.5px; color: #94a3b8; margin-top: 8px; }
+
+  /* ---------- about modal ---------- */
+  #aboutModal { position: absolute; inset: 0; z-index: 50; background: rgba(2,6,23,.6);
+    display: none; align-items: center; justify-content: center; }
+  #aboutModal.open { display: flex; }
+  #aboutCard { background: white; border-radius: 16px; max-width: 620px; width: 92vw;
+    max-height: 84vh; overflow-y: auto; padding: 24px 28px; color: #1e293b; }
+  #aboutCard h2 { margin-top: 0; }
+  #aboutCard p, #aboutCard li { font-size: 13.5px; line-height: 1.55; }
+  #aboutCard .closeAbout { float: right; border: none; background: #f1f5f9;
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+
+  #credits { position: absolute; left: 14px; bottom: 36px; z-index: 10;
+    background: var(--glass); border: 1px solid var(--glass-border); border-radius: 10px;
+    color: var(--text-dim); font-size: 10.5px; padding: 6px 10px; max-width: 420px; }
+  #credits b { color: var(--text-light); font-weight: 600; }
+
+  #demLegend { position: absolute; left: 14px; bottom: 92px; z-index: 10; width: 265px;
+    background: var(--glass); border: 1px solid var(--glass-border); border-radius: 10px;
+    padding: 9px 12px; color: var(--text-dim); font-size: 10.5px; display: none; }
+  #demLegend .bar { height: 10px; border-radius: 5px; margin-bottom: 4px; }
+  #demLegend .lab { display: flex; justify-content: space-between; color: var(--text-light); }
+  #demLegend .demRow { display: flex; gap: 10px; align-items: center; margin-bottom: 7px;
+    color: var(--text-light); font-size: 11.5px; }
+  #demLegend .demRow label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  #demLegend input[type=range] { flex: 1; accent-color: var(--accent); height: 14px; }
+  #demRamp { margin-bottom: 5px; }
+
+  @media (max-width: 720px) {
+    #panel { width: 100vw; }
+    #header { max-width: calc(100vw - 28px); }
+    .plot { height: 320px; }
+  }
+  /* the open panel is the focus on narrow screens — header would cover its tabs */
+  @media (max-width: 1000px) {
+    body.panelOpen #header, body.panelOpen #credits,
+    body.panelOpen #demLegend { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="header">
+  <h1>Rhine <span>Digital Twin</span> — SWOT × In-situ</h1>
+  <p>Click a gauge on the 3D map (or a chip below) to compare satellite-derived and
+     in-situ water levels &amp; discharge — including the live PegelOnline feed.</p>
+  <div id="stationChips"></div>
+</div>
+
+<div id="demLegend">
+  <div class="demRow">
+    <label><input type="radio" name="demMode" value="hillshade" checked> Hillshade</label>
+    <label><input type="radio" name="demMode" value="color"> Color relief</label>
+  </div>
+  <div class="demRow">
+    <span>Intensity</span>
+    <input id="demAlphaSlider" type="range" min="10" max="100" value="80">
+    <span id="demAlphaVal">80%</span>
+  </div>
+  <div id="demRamp">
+    <div class="bar"></div>
+    <div class="lab"><span id="demVmin"></span><span>Elevation (m)</span><span id="demVmax"></span></div>
+  </div>
+  <div>DEM incl. echo-sounded bathymetry — PANGAEA.919308</div>
+</div>
+
+<div id="credits">
+  <b>Data:</b> SWOT (NASA/CNES) · DAHITI (DGFI-TUM) · PegelOnline (WSV) · GloFAS (Copernicus) ·
+  GEOGloWS · Imagery: Esri/Maxar — MSc thesis demo, S. Upadhye
+</div>
+
+<div id="panel">
+  <div id="panelHeader">
+    <div class="row1">
+      <h2 id="stName">—</h2>
+      <span class="meta" id="stMeta"></span>
+      <button id="closeBtn" title="Close">✕</button>
+    </div>
+    <div id="liveChips"></div>
+  </div>
+  <div id="tabs">
+    <button class="tab active" data-tab="wl">Water level</button>
+    <button class="tab" data-tab="q">Discharge</button>
+  </div>
+  <div id="panelBody">
+    <div id="wlView">
+      <div class="controls">
+        <div class="group"><b>View:</b>
+          <label><input type="radio" name="wlMode" value="abs" checked> Absolute (dual axis)</label>
+          <label><input type="radio" name="wlMode" value="anom"> Anomaly overlay</label>
+        </div>
+      </div>
+      <div id="wlPlot" class="plot"></div>
+      <div class="metricsCard">
+        <h4>DAHITI vs in-situ agreement (thesis validation)</h4>
+        <div class="metricsGrid" id="wlMetrics"></div>
+        <div class="note">Demeaned comparison of matched passes; datum offset separates the
+          local gauge zero from the DAHITI ellipsoidal reference.</div>
+      </div>
+    </div>
+    <div id="qView" style="display:none">
+      <div class="controls">
+        <div class="group"><b>Slope:</b>
+          <label><input type="radio" name="qSlope" value="fixed" checked> Fixed 3.0×10⁻⁴</label>
+          <label><input type="radio" name="qSlope" value="swot"> SWOT-observed</label>
+        </div>
+        <div class="group"><b>Manning n:</b>
+          <label><input type="radio" name="qCal" value="uncal" checked> Literature 0.030</label>
+          <label><input type="radio" name="qCal" value="cal"> Calibrated</label>
+        </div>
+      </div>
+      <div id="qPlot" class="plot"></div>
+      <div class="metricsCard">
+        <h4>Modified Manning vs in-situ (selected variant, computed live)</h4>
+        <div class="metricsGrid" id="qMetrics"></div>
+        <div class="note">SWOT passes matched to same-day mean in-situ discharge.
+          GloFAS / GEOGloWS can be toggled in the chart legend.</div>
+      </div>
+    </div>
+    <div id="profileView" style="display:none">
+      <div class="controls" id="segBtns"></div>
+      <div id="profPlot" class="plot" style="height:420px"></div>
+      <div class="metricsCard">
+        <h4>How to read this profile</h4>
+        <div class="note" style="margin-top:0">
+          <b>Thalweg bed:</b> deepest DEM pixel on a ±250 m perpendicular cross-section every
+          250 m along the centreline (echo-sounded bathymetry, PANGAEA DEM).
+          <b>DEM along SWOT centerline:</b> DEM elevation sampled on the SWOT node centerline.
+          <b>SWOT WSE:</b> node water-surface elevations from a high-flow event
+          (<span id="hiDates"></span>) and a low-flow event (<span id="loDates"></span>);
+          gaps are unobserved sections of those passes. Dashed verticals mark the four gauges
+          at their corrected chainages (0 km = Bingen).
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="aboutModal">
+  <div id="aboutCard">
+    <button class="closeAbout" onclick="document.getElementById('aboutModal').classList.remove('open')">Close</button>
+    <h2>About this digital twin</h2>
+    <p>This dashboard accompanies an MSc thesis on estimating <b>Rhine river discharge from the
+       SWOT satellite mission</b>. Four PegelOnline gauging stations are used as ground truth:
+       Kaub, Bonn, Duisburg-Ruhrort and Wesel.</p>
+    <ul>
+      <li><b>Water level:</b> in-situ stage from WSV PegelOnline (continuous, 15-min) compared with
+          satellite altimetry water levels from <b>DAHITI</b> (DGFI-TUM).</li>
+      <li><b>Discharge:</b> a <b>modified Manning approach</b> (Durand et al., 2023) driven by SWOT
+          water-surface elevation, width and slope, with the unobserved channel area derived from
+          echo-sounded bathymetry (PANGAEA DEM). Variants: fixed vs SWOT-observed slope, literature
+          vs calibrated roughness.</li>
+      <li><b>Live layer:</b> the most recent 30 days and the current measurement are fetched directly
+          from the PegelOnline REST API every time the page loads — the "twin" always shows the
+          river's present state.</li>
+      <li><b>Context models:</b> GloFAS (Copernicus) and GEOGloWS reanalysis discharge can be toggled
+          in the legend of the discharge chart.</li>
+    </ul>
+    <p>3D scene: CesiumJS with Esri World Imagery (or Google Photorealistic 3D Tiles if an API key is
+       configured). Author: Sharvil Upadhye.</p>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= configuration ================= */
+// Optional: paste a Google Maps Platform key to switch the globe to
+// Google Photorealistic 3D Tiles (the "Google Earth" look).
+const GOOGLE_MAPS_API_KEY = "";
+
+const DATA = window.DASHBOARD_DATA;
+const PEGEL_API = "https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations";
+
+const COL = { insitu: "#1f77b4", dahiti: "#ff7f0e", live: "#16a34a",
+              swot: "#d62728", glofas: "#6b7280", geoglows: "#7c3aed" };
+
+/* ================= Cesium scene ================= */
+Cesium.Ion.defaultAccessToken = undefined;
+const viewer = new Cesium.Viewer("map", {
+  baseLayer: new Cesium.ImageryLayer(new Cesium.UrlTemplateImageryProvider({
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    credit: new Cesium.Credit("Esri, Maxar, Earthstar Geographics"),
+    maximumLevel: 19,
+  })),
+  baseLayerPicker: false, geocoder: false, timeline: false, animation: false,
+  homeButton: true, sceneModePicker: false, navigationHelpButton: false,
+  fullscreenButton: true, infoBox: false, selectionIndicator: false,
+  requestRenderMode: true, maximumRenderTimeChange: Infinity,
+});
+viewer.scene.globe.depthTestAgainstTerrain = false;
+
+async function tryGoogle3D() {
+  if (!GOOGLE_MAPS_API_KEY) return;
+  try {
+    const ts = await Cesium.Cesium3DTileset.fromUrl(
+      `https://tile.googleapis.com/v1/3dtiles/root.json?key=${GOOGLE_MAPS_API_KEY}`,
+      { showCreditsOnScreen: true });
+    viewer.scene.primitives.add(ts);
+    viewer.scene.globe.show = false;
+  } catch (e) { console.warn("Google 3D tiles unavailable:", e); }
+}
+tryGoogle3D();
+
+const HOME = {
+  destination: Cesium.Cartesian3.fromDegrees(8.05, 49.45, 185000),
+  orientation: { heading: Cesium.Math.toRadians(331), pitch: Cesium.Math.toRadians(-38), roll: 0 },
+};
+viewer.camera.setView(HOME);
+viewer.homeButton.viewModel.command.beforeExecute.addEventListener(e => {
+  e.cancel = true; viewer.camera.flyTo({ ...HOME, duration: 2.5 });
+});
+
+for (const st of DATA.stations) {
+  viewer.entities.add({
+    id: st.key,
+    position: Cesium.Cartesian3.fromDegrees(st.lon, st.lat, 30),
+    point: { pixelSize: 13, color: Cesium.Color.fromCssColorString("#38bdf8"),
+             outlineColor: Cesium.Color.WHITE, outlineWidth: 3,
+             disableDepthTestDistance: Number.POSITIVE_INFINITY },
+    label: { text: st.name, font: "600 14px 'Segoe UI', sans-serif",
+             fillColor: Cesium.Color.WHITE,
+             showBackground: true, backgroundColor: new Cesium.Color(0.06, 0.09, 0.15, 0.8),
+             backgroundPadding: new Cesium.Cartesian2(8, 5),
+             pixelOffset: new Cesium.Cartesian2(0, -24),
+             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+             disableDepthTestDistance: Number.POSITIVE_INFINITY },
+  });
+}
+
+/* thalweg + SWOT centerline draped on the imagery */
+const PROF = DATA.profile;
+function addReachLine(coords, css, width) {
+  // plain polylines slightly above the ellipsoid — ground-clamped polylines
+  // (shadow volumes) are too slow on weak GPUs for 300+ km lines
+  const flat = [];
+  for (const p of coords) flat.push(p[0], p[1], 40);
+  return viewer.entities.add({ polyline: {
+    positions: Cesium.Cartesian3.fromDegreesArrayHeights(flat),
+    width, material: Cesium.Color.fromCssColorString(css).withAlpha(0.92),
+  }});
+}
+const thalwegEnt = addReachLine(PROF.thalweg_geom, "#3b82f6", 3);
+const centerEnts = PROF.centerline_parts.map(p => addReachLine(p, "#ef4444", 3));
+
+/* PANGAEA DEM drape (built by build_dem_layers.py — absent until first build).
+   Two renderings per layer: grayscale hillshade and color relief; an intensity
+   slider drives the imagery-layer alpha so the drape blends with the basemap. */
+const DEM = window.DEM_LAYERS;
+const demLayers = { hillshade: [], color: [] };
+let demOn = true, demMode = "hillshade", demAlpha = 0.8;
+function applyDem() {
+  for (const m of Object.keys(demLayers)) {
+    demLayers[m].forEach(l => { l.show = demOn && m === demMode; l.alpha = demAlpha; });
+  }
+  document.getElementById("demLegend").style.display = DEM && demOn ? "block" : "none";
+  document.getElementById("demRamp").style.display = demMode === "color" ? "block" : "none";
+  viewer.scene.requestRender();
+}
+async function addDemLayers() {
+  if (!DEM) return;
+  document.querySelector("#demRamp .bar").style.background =
+    `linear-gradient(90deg, ${DEM.stops.map(s => s[1]).join(",")})`;
+  document.getElementById("demVmin").textContent = `≤ ${DEM.vmin}`;
+  document.getElementById("demVmax").textContent = `≥ ${DEM.vmax}`;
+  if (DEM.tiles) {
+    // whole-reach hillshade pyramid (build_dem_tiles.py) — QGIS-level detail
+    const prov = new Cesium.UrlTemplateImageryProvider({
+      url: DEM.tiles.url,
+      minimumLevel: DEM.tiles.minZoom, maximumLevel: DEM.tiles.maxZoom,
+      rectangle: Cesium.Rectangle.fromDegrees(...DEM.tiles.bounds),
+      credit: new Cesium.Credit("PANGAEA.919308"),
+    });
+    // tiles outside the data corridor are deliberately absent — silence 404s
+    prov.errorEvent.addEventListener(() => {});
+    const layer = viewer.imageryLayers.addImageryProvider(prov);
+    layer.show = false;
+    demLayers.hillshade.push(layer);
+  }
+  for (const d of DEM.layers) {
+    for (const m of Object.keys(demLayers)) {
+      if (!d[m]) continue;
+      if (m === "hillshade" && DEM.tiles) continue;   // pyramid replaces singles
+      try {
+        const provider = await Cesium.SingleTileImageryProvider.fromUrl(d[m], {
+          rectangle: Cesium.Rectangle.fromDegrees(...d.bounds) });
+        const layer = viewer.imageryLayers.addImageryProvider(provider);
+        layer.show = false;
+        demLayers[m].push(layer);
+      } catch (e) { console.warn("DEM layer failed:", d[m], e); }
+    }
+  }
+  applyDem();
+}
+addDemLayers();
+document.querySelectorAll("input[name=demMode]").forEach(r => r.onchange = () => {
+  demMode = r.value; applyDem();
+});
+const demSlider = document.getElementById("demAlphaSlider");
+demSlider.oninput = () => {
+  demAlpha = demSlider.value / 100;
+  document.getElementById("demAlphaVal").textContent = `${demSlider.value}%`;
+  applyDem();
+};
+
+const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+handler.setInputAction(m => {
+  const picked = viewer.scene.pick(m.position);
+  const id = picked && picked.id && picked.id.id;
+  if (id && DATA.stations.some(s => s.key === id)) selectStation(id);
+}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+handler.setInputAction(m => {
+  const picked = viewer.scene.pick(m.endPosition);
+  viewer.scene.canvas.style.cursor =
+    picked && picked.id && DATA.stations.some(s => s.key === picked.id.id) ? "pointer" : "default";
+}, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+/* ================= UI state ================= */
+let current = null;            // selected station record
+let activeTab = "wl";
+const live = {};               // per-station live PegelOnline cache
+
+const chipsEl = document.getElementById("stationChips");
+for (const st of DATA.stations) {
+  const b = document.createElement("button");
+  b.className = "chip"; b.textContent = st.name; b.dataset.key = st.key;
+  b.onclick = () => selectStation(st.key);
+  chipsEl.appendChild(b);
+}
+const profChip = document.createElement("button");
+profChip.className = "chip"; profChip.dataset.key = "__profile";
+profChip.textContent = "📈 Long profile";
+profChip.onclick = openProfile;
+chipsEl.appendChild(profChip);
+
+function addLineToggle(label, css, ents) {
+  const b = document.createElement("button");
+  b.className = "chip";
+  b.innerHTML = `<span class="dot" style="background:${css}"></span>${label}`;
+  b.title = "Show / hide on the map";
+  b.onclick = () => {
+    const show = !ents[0].show;
+    ents.forEach(en => { en.show = show; });
+    b.classList.toggle("off", !show);
+    viewer.scene.requestRender();
+  };
+  chipsEl.appendChild(b);
+}
+addLineToggle("Thalweg", "#3b82f6", [thalwegEnt]);
+addLineToggle("SWOT centreline", "#ef4444", centerEnts);
+
+if (DEM) {
+  const b = document.createElement("button");
+  b.className = "chip";
+  b.innerHTML = `<span class="dot" style="background:linear-gradient(90deg,` +
+    `${DEM.stops.map(s => s[1]).join(",")})"></span>DEM (PANGAEA)`;
+  b.title = "Show / hide the elevation drape";
+  b.onclick = () => { demOn = !demOn; b.classList.toggle("off", !demOn); applyDem(); };
+  chipsEl.appendChild(b);
+}
+
+const aboutBtn = document.createElement("button");
+aboutBtn.className = "chip"; aboutBtn.id = "aboutBtn"; aboutBtn.textContent = "ⓘ About";
+aboutBtn.onclick = () => document.getElementById("aboutModal").classList.add("open");
+chipsEl.appendChild(aboutBtn);
+
+document.getElementById("closeBtn").onclick = () => {
+  document.getElementById("panel").classList.remove("open");
+  document.body.classList.remove("panelOpen");
+  document.querySelectorAll(".chip[data-key]").forEach(c => c.classList.remove("active"));
+  current = null;
+};
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  activeTab = t.dataset.tab;
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
+  document.getElementById("wlView").style.display = activeTab === "wl" ? "" : "none";
+  document.getElementById("qView").style.display = activeTab === "q" ? "" : "none";
+  renderCharts();
+});
+document.querySelectorAll("input[name=wlMode],input[name=qSlope],input[name=qCal]")
+  .forEach(r => r.onchange = renderCharts);
+
+/* ================= live PegelOnline ================= */
+async function fetchJson(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${url}`);
+  return r.json();
+}
+function hourly(measurements, scale) {
+  // 15-min API records -> hourly means [[iso, value], ...]
+  const buckets = new Map();
+  for (const m of measurements) {
+    if (m.value == null) continue;
+    const key = m.timestamp.slice(0, 13);                  // YYYY-MM-DDTHH
+    const b = buckets.get(key) || { s: 0, n: 0, t: m.timestamp };
+    b.s += m.value * scale; b.n += 1; buckets.set(key, b);
+  }
+  return [...buckets.values()].map(b => [b.t, +(b.s / b.n).toFixed(3)]);
+}
+async function loadLive(st) {
+  if (live[st.key]) return live[st.key];
+  const out = { w: null, q: null, wNow: null, qNow: null, failed: false };
+  const base = `${PEGEL_API}/${st.pegelonline_uuid}`;
+  try {
+    const [wSeries, wNow] = await Promise.all([
+      fetchJson(`${base}/W/measurements.json?start=P30D`),
+      fetchJson(`${base}/W/currentmeasurement.json`),
+    ]);
+    out.w = hourly(wSeries, 0.01);                          // cm -> m
+    out.wNow = { v: wNow.value / 100, t: wNow.timestamp };
+  } catch (e) { out.failed = true; console.warn("live W failed", st.key, e); }
+  try {
+    const [qSeries, qNow] = await Promise.all([
+      fetchJson(`${base}/Q/measurements.json?start=P30D`),
+      fetchJson(`${base}/Q/currentmeasurement.json`),
+    ]);
+    out.q = hourly(qSeries, 1);
+    out.qNow = { v: qNow.value, t: qNow.timestamp };
+  } catch (e) { console.warn("live Q unavailable", st.key, e); }
+  live[st.key] = out;
+  return out;
+}
+function fmtTime(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { day: "2-digit", month: "short",
+                                       hour: "2-digit", minute: "2-digit" });
+}
+
+/* ================= station selection ================= */
+async function selectStation(key) {
+  current = DATA.stations.find(s => s.key === key);
+  document.querySelectorAll(".chip").forEach(c =>
+    c.classList.toggle("active", c.dataset.key === key));
+
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(current.lon, current.lat - 0.052, 5200),
+    orientation: { heading: 0, pitch: Cesium.Math.toRadians(-42), roll: 0 },
+    duration: 2.2,
+  });
+
+  document.getElementById("stName").textContent = current.name;
+  document.getElementById("stMeta").textContent =
+    `Rhine km ${current.rhine_km} · ${current.lat.toFixed(4)}°N ${current.lon.toFixed(4)}°E`;
+  document.getElementById("panel").classList.add("open");
+  document.body.classList.add("panelOpen");
+  setPanelMode("station");
+
+  renderLiveChips(null);          // placeholders while fetching
+  renderCharts();
+  const lv = await loadLive(current);
+  if (current.key === key) { renderLiveChips(lv); renderCharts(); }
+}
+
+function renderLiveChips(lv) {
+  const el = document.getElementById("liveChips");
+  if (!lv) { el.innerHTML = `<span class="liveChip stale">⏳ contacting PegelOnline…</span>`; return; }
+  const parts = [];
+  if (lv.wNow) parts.push(`<span class="liveChip">💧 Stage now <b>${lv.wNow.v.toFixed(2)} m</b> · ${fmtTime(lv.wNow.t)}</span>`);
+  if (lv.qNow) parts.push(`<span class="liveChip">🌊 Discharge now <b>${Math.round(lv.qNow.v)} m³/s</b> · ${fmtTime(lv.qNow.t)}</span>`);
+  if (!lv.wNow && !lv.qNow) parts.push(`<span class="liveChip stale">live feed unavailable (open via local server / check connection)</span>`);
+  const dh = current.dahiti_wl;
+  if (dh.length) {
+    const last = dh[dh.length - 1];
+    parts.push(`<span class="liveChip dahiti">🛰️ DAHITI last <b>${last[1].toFixed(2)} m</b> · ${last[0].slice(0, 10)}</span>`);
+  }
+  el.innerHTML = parts.join("");
+}
+
+/* ================= panel modes & longitudinal profile ================= */
+function setPanelMode(mode) {
+  const station = mode === "station";
+  document.getElementById("liveChips").style.display = station ? "" : "none";
+  document.getElementById("tabs").style.display = station ? "" : "none";
+  document.getElementById("wlView").style.display = station && activeTab === "wl" ? "" : "none";
+  document.getElementById("qView").style.display = station && activeTab === "q" ? "" : "none";
+  document.getElementById("profileView").style.display = station ? "none" : "";
+}
+
+let profileSeg = "all";
+const SEGMENTS = (() => {
+  const s = PROF.stations_km;
+  return {
+    all: { label: "Whole reach", range: PROF.extent_km },
+    kb: { label: "Kaub → Bonn", range: [s.kaub, s.bonn] },
+    bd: { label: "Bonn → Duisburg-Ruhrort", range: [s.bonn, s.duisburg_ruhrort] },
+    dw: { label: "Duisburg-Ruhrort → Wesel", range: [s.duisburg_ruhrort, s.wesel] },
+  };
+})();
+const segBtnsEl = document.getElementById("segBtns");
+for (const [k, seg] of Object.entries(SEGMENTS)) {
+  const b = document.createElement("button");
+  b.className = "segBtn"; b.dataset.seg = k; b.textContent = seg.label;
+  b.onclick = () => setSegment(k);
+  segBtnsEl.appendChild(b);
+}
+document.getElementById("hiDates").textContent = PROF.swot_high.dates.join(", ");
+document.getElementById("loDates").textContent = PROF.swot_low.dates.join(", ");
+
+function openProfile() {
+  current = null;
+  document.querySelectorAll(".chip[data-key]").forEach(c =>
+    c.classList.toggle("active", c.dataset.key === "__profile"));
+  document.getElementById("stName").textContent = "Longitudinal profile";
+  document.getElementById("stMeta").textContent =
+    `${PROF.label} · DEM thalweg & SWOT water surface`;
+  document.getElementById("panel").classList.add("open");
+  document.body.classList.add("panelOpen");
+  setPanelMode("profile");
+  setSegment(profileSeg);
+}
+
+function setSegment(k) {
+  profileSeg = k;
+  segBtnsEl.querySelectorAll(".segBtn").forEach(b =>
+    b.classList.toggle("active", b.dataset.seg === k));
+  renderProfile();
+  flyToSegment(SEGMENTS[k].range);
+}
+
+function flyToSegment([a, b]) {
+  let w = 180, e = -180, s = 90, n = -90;
+  for (const p of PROF.thalweg_geom) {
+    if (p[2] < a - 1 || p[2] > b + 1) continue;
+    w = Math.min(w, p[0]); e = Math.max(e, p[0]);
+    s = Math.min(s, p[1]); n = Math.max(n, p[1]);
+  }
+  if (e < w) return;
+  viewer.camera.flyTo({
+    destination: Cesium.Rectangle.fromDegrees(w - 0.06, s - 0.04, e + 0.06, n + 0.04),
+    duration: 2.0,
+  });
+}
+
+function renderProfile() {
+  const [a, b] = SEGMENTS[profileSeg].range;
+  const pad = Math.max((b - a) * 0.02, 0.5);
+  const xr = [Math.max(a - pad, 0), b + pad];
+  const inR = k => k >= xr[0] && k <= xr[1];
+
+  let ymin = Infinity, ymax = -Infinity;
+  const scan = (pairs, ki, vi) => { for (const p of pairs) if (inR(p[ki])) {
+    ymin = Math.min(ymin, p[vi]); ymax = Math.max(ymax, p[vi]); } };
+  scan(PROF.thalweg, 0, 1); scan(PROF.centerline_dem, 0, 1);
+  scan(PROF.swot_high.pts, 0, 1); scan(PROF.swot_low.pts, 0, 1);
+  const ypad = (ymax - ymin) * 0.07 || 2;
+
+  const traces = [
+    { x: PROF.thalweg.map(p => p[0]), y: PROF.thalweg.map(p => p[1]),
+      name: "Thalweg bed (DEM)", mode: "lines",
+      line: { color: "#92400e", width: 1.6 },
+      fill: "tozeroy", fillcolor: "rgba(146,64,14,0.10)" },
+    { x: PROF.centerline_dem.map(p => p[0]), y: PROF.centerline_dem.map(p => p[1]),
+      name: "DEM along SWOT centerline", mode: "lines",
+      line: { color: "#94a3b8", width: 1.1, dash: "dot" } },
+    { x: PROF.swot_high.pts.map(p => p[0]), y: PROF.swot_high.pts.map(p => p[1]),
+      customdata: PROF.swot_high.pts.map(p => p[2]),
+      name: "SWOT WSE — high flow", mode: "markers",
+      marker: { color: "#2563eb", size: 4 },
+      hovertemplate: "km %{x:.2f} · %{y:.2f} m · %{customdata}<extra>SWOT high</extra>" },
+    { x: PROF.swot_low.pts.map(p => p[0]), y: PROF.swot_low.pts.map(p => p[1]),
+      customdata: PROF.swot_low.pts.map(p => p[2]),
+      name: "SWOT WSE — low flow", mode: "markers",
+      marker: { color: "#ea580c", size: 4 },
+      hovertemplate: "km %{x:.2f} · %{y:.2f} m · %{customdata}<extra>SWOT low</extra>" },
+  ];
+
+  const shapes = [], annotations = [];
+  for (const [key, km] of Object.entries(PROF.stations_km)) {
+    if (!inR(km)) continue;
+    const st = DATA.stations.find(s => s.key === key);
+    shapes.push({ type: "line", x0: km, x1: km, y0: 0, y1: 1, yref: "paper",
+                  line: { color: "#475569", width: 1, dash: "dash" } });
+    annotations.push({ x: km, y: 1, yref: "paper", yanchor: "bottom",
+                       text: st ? st.name : key, showarrow: false,
+                       font: { size: 10.5, color: "#475569" } });
+  }
+
+  Plotly.react("profPlot", traces, {
+    margin: { l: 56, r: 16, t: 30, b: 96 },
+    hovermode: "closest",
+    legend: { orientation: "h", y: -0.28, yanchor: "top", x: 0, font: { size: 11 } },
+    xaxis: { title: { text: "Chainage (km, 0 = Bingen)" }, range: xr, gridcolor: "#eef2f7" },
+    yaxis: { title: { text: "Elevation (m)" }, range: [ymin - ypad, ymax + ypad],
+             gridcolor: "#eef2f7" },
+    shapes, annotations,
+    paper_bgcolor: "white", plot_bgcolor: "white", font: { size: 12 },
+  }, PLOT_CONFIG);
+}
+
+/* ================= charts ================= */
+const PLOT_CONFIG = { displaylogo: false, responsive: true,
+  modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] };
+
+function baseLayout(extra) {
+  return Object.assign({
+    margin: { l: 58, r: 58, t: 42, b: 40 },
+    hovermode: "x unified",
+    legend: { orientation: "h", y: -0.16, yanchor: "top", x: 0, font: { size: 11 } },
+    xaxis: {
+      type: "date", gridcolor: "#eef2f7",
+      rangeselector: { buttons: [
+        { count: 30, label: "30d", step: "day", stepmode: "backward" },
+        { count: 90, label: "90d", step: "day", stepmode: "backward" },
+        { count: 1, label: "1y", step: "year", stepmode: "backward" },
+        { step: "all", label: "All" }], font: { size: 11 } },
+    },
+    paper_bgcolor: "white", plot_bgcolor: "white", font: { size: 12 },
+  }, extra);
+}
+const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
+
+function renderCharts() {
+  if (!current) return;
+  if (activeTab === "wl") renderWL(); else renderQ();
+}
+
+function renderWL() {
+  const st = current, lv = live[st.key];
+  const anom = document.querySelector("input[name=wlMode]:checked").value === "anom";
+
+  const insX = st.insitu_wl_daily.map(p => p[0]);
+  let insY = st.insitu_wl_daily.map(p => p[1]);
+  const dhX = st.dahiti_wl.map(p => p[0]);
+  let dhY = st.dahiti_wl.map(p => p[1]);
+  const dhE = st.dahiti_wl.map(p => p[2]);
+  let liveX = [], liveY = [];
+  if (lv && lv.w) { liveX = lv.w.map(p => p[0]); liveY = lv.w.map(p => p[1]); }
+
+  let insOff = 0, dhOff = 0;
+  if (anom) {
+    insOff = mean(insY); dhOff = mean(dhY);
+    insY = insY.map(v => +(v - insOff).toFixed(3));
+    dhY = dhY.map(v => +(v - dhOff).toFixed(3));
+    liveY = liveY.map(v => +(v - insOff).toFixed(3));
+  }
+
+  const traces = [
+    { x: insX, y: insY, name: "In-situ PegelOnline (daily)", mode: "lines",
+      line: { color: COL.insitu, width: 1.4 }, yaxis: "y" },
+    { x: liveX, y: liveY, name: "PegelOnline live (30 d)", mode: "lines",
+      line: { color: COL.live, width: 2 }, yaxis: "y" },
+    { x: dhX, y: dhY, name: "DAHITI altimetry", mode: "markers",
+      marker: { color: COL.dahiti, size: 7 },
+      error_y: { type: "data", array: dhE, visible: true, color: COL.dahiti,
+                 thickness: 1, width: 2 },
+      yaxis: anom ? "y" : "y2" },
+  ];
+  const layout = baseLayout({
+    yaxis: { title: { text: anom ? "Water-level anomaly (m)" : "In-situ stage (m, gauge datum)" },
+             gridcolor: "#eef2f7", zeroline: anom },
+  });
+  if (!anom) layout.yaxis2 = {
+    title: { text: "DAHITI water level (m)" }, overlaying: "y", side: "right", showgrid: false };
+  Plotly.react("wlPlot", traces, layout, PLOT_CONFIG);
+
+  const m = st.dahiti_metrics, g = document.getElementById("wlMetrics");
+  g.innerHTML = m ? [
+    ["Matched passes", m.n], ["Pearson r", m.r.toFixed(3)],
+    ["RMSE", m.rmse_m.toFixed(2) + " m"], ["Bias", m.bias_m.toFixed(2) + " m"],
+    ["Datum offset", m.datum_offset_m.toFixed(2) + " m"],
+  ].map(([k, v]) => `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("")
+    : "<i>no metrics file</i>";
+}
+
+function qVariant() {
+  const slope = document.querySelector("input[name=qSlope]:checked").value;
+  const cal = document.querySelector("input[name=qCal]:checked").value;
+  const field = (slope === "fixed" ? "q_fixed" : "q_swot") + (cal === "cal" ? "_cal" : "");
+  const label = `SWOT modified Manning (${slope === "fixed" ? "fixed slope" : "SWOT slope"}, ` +
+                `${cal === "cal" ? "calibrated n" : "n=0.030"})`;
+  return { field, label };
+}
+
+function renderQ() {
+  const st = current, lv = live[st.key];
+  const { field, label } = qVariant();
+
+  const swotX = [], swotY = [];
+  for (const p of st.swot_manning) if (p[field] != null) { swotX.push(p.t); swotY.push(p[field]); }
+
+  const traces = [
+    { x: st.insitu_q_daily.map(p => p[0]), y: st.insitu_q_daily.map(p => p[1]),
+      name: "In-situ PegelOnline (daily)", mode: "lines",
+      line: { color: COL.insitu, width: 1.4 } },
+  ];
+  if (lv && lv.q) traces.push({
+    x: lv.q.map(p => p[0]), y: lv.q.map(p => p[1]), name: "PegelOnline live (30 d)",
+    mode: "lines", line: { color: COL.live, width: 2 } });
+  traces.push({ x: swotX, y: swotY, name: label, mode: "markers",
+    marker: { color: COL.swot, size: 9, symbol: "diamond",
+              line: { color: "white", width: 1 } } });
+  if (st.glofas_q_daily.length) traces.push({
+    x: st.glofas_q_daily.map(p => p[0]), y: st.glofas_q_daily.map(p => p[1]),
+    name: "GloFAS", mode: "lines", visible: "legendonly",
+    line: { color: COL.glofas, width: 1.2, dash: "dot" } });
+  if (st.geoglows_q_daily.length) traces.push({
+    x: st.geoglows_q_daily.map(p => p[0]), y: st.geoglows_q_daily.map(p => p[1]),
+    name: "GEOGloWS", mode: "lines", visible: "legendonly",
+    line: { color: COL.geoglows, width: 1.2, dash: "dot" } });
+
+  Plotly.react("qPlot", traces,
+    baseLayout({ yaxis: { title: { text: "Discharge (m³/s)" }, gridcolor: "#eef2f7",
+                          rangemode: "tozero" } }),
+    PLOT_CONFIG);
+
+  /* matched-pair skill of the selected variant, computed client-side */
+  const qByDate = new Map(st.insitu_q_daily);
+  const obs = [], sim = [];
+  for (const p of st.swot_manning) {
+    const v = p[field]; if (v == null) continue;
+    const o = qByDate.get(p.t.slice(0, 10));
+    if (o != null) { obs.push(o); sim.push(v); }
+  }
+  const g = document.getElementById("qMetrics");
+  if (obs.length < 3) { g.innerHTML = "<i>not enough matched passes</i>"; return; }
+  const mo = mean(obs), ms = mean(sim), n = obs.length;
+  let cov = 0, vo = 0, vs = 0, sse = 0;
+  for (let i = 0; i < n; i++) {
+    cov += (obs[i] - mo) * (sim[i] - ms);
+    vo += (obs[i] - mo) ** 2; vs += (sim[i] - ms) ** 2;
+    sse += (sim[i] - obs[i]) ** 2;
+  }
+  const r = cov / Math.sqrt(vo * vs);
+  const rmse = Math.sqrt(sse / n);
+  const bias = ms - mo;
+  const nse = 1 - sse / vo;
+  const kge = 1 - Math.sqrt((r - 1) ** 2 + (Math.sqrt(vs / n) / Math.sqrt(vo / n) - 1) ** 2 +
+                            (ms / mo - 1) ** 2);
+  g.innerHTML = [
+    ["Matched passes", n], ["Pearson r", r.toFixed(3)],
+    ["RMSE", Math.round(rmse) + " m³/s"], ["Bias", Math.round(bias) + " m³/s"],
+    ["NSE", nse.toFixed(3)], ["KGE", kge.toFixed(3)],
+  ].map(([k, v]) => `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+}
+
+/* deep-link support: index.html#kaub opens that station, #profile the long profile */
+const hash = location.hash.replace("#", "");
+if (DATA.stations.some(s => s.key === hash)) setTimeout(() => selectStation(hash), 800);
+else if (hash === "profile") setTimeout(openProfile, 800);
+</script>
+</body>
+</html>

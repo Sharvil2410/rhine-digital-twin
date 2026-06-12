@@ -1,0 +1,5 @@
+﻿node_modules/
+data/dem_tiles_build.log
+data/dem_tiles_build.err
+*.pyc
+__pycache__/
