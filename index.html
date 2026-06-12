@@ -62,6 +62,13 @@
     transform: translateX(105%); transition: transform .35s ease; display: flex; flex-direction: column;
   }
   #panel.open { transform: translateX(0); }
+  #panelResizer { position: absolute; left: 0; top: 0; height: 100%; width: 12px;
+    cursor: ew-resize; z-index: 30; touch-action: none; }
+  #panelResizer::before { content: ""; position: absolute; left: 4px; top: 50%;
+    transform: translateY(-50%); width: 4px; height: 46px; border-radius: 4px;
+    background: #cbd5e1; transition: background .15s; }
+  #panelResizer:hover::before, #panelResizer.dragging::before { background: #0ea5e9; }
+  @media (max-width: 720px) { #panelResizer { display: none; } }
   #panelHeader { padding: 14px 18px 10px; border-bottom: 1px solid #e2e8f0; }
   #panelHeader .row1 { display: flex; align-items: baseline; gap: 10px; }
   #panelHeader h2 { margin: 0; font-size: 20px; color: #0f172a; }
@@ -172,6 +179,7 @@
 </div>
 
 <div id="panel">
+  <div id="panelResizer" title="Drag to resize — double-click to reset"></div>
   <div id="panelHeader">
     <div class="row1">
       <h2 id="stName">—</h2>
@@ -480,6 +488,56 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
 });
 document.querySelectorAll("input[name=wlMode],input[name=qSlope],input[name=qCal]")
   .forEach(r => r.onchange = renderCharts);
+
+/* ---- resizable panel: drag the left-edge handle, dbl-click to reset ---- */
+const panelEl = document.getElementById("panel");
+const resizerEl = document.getElementById("panelResizer");
+const PANEL_W_DEFAULT = 560;
+const savedPanelW = parseInt(localStorage.getItem("panelW"), 10);
+if (savedPanelW >= 380 && savedPanelW <= window.innerWidth * 0.92) {
+  panelEl.style.width = `${savedPanelW}px`;
+}
+let plotResizeQueued = false;
+function resizeVisiblePlots() {
+  for (const id of ["wlPlot", "qPlot", "profPlot"]) {
+    const el = document.getElementById(id);
+    if (el && el.offsetParent !== null && el.classList.contains("js-plotly-plot")) {
+      Plotly.Plots.resize(el);
+    }
+  }
+}
+resizerEl.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  resizerEl.setPointerCapture(e.pointerId);
+  resizerEl.classList.add("dragging");
+  panelEl.style.transition = "none";
+  document.body.style.userSelect = "none";
+  const onMove = ev => {
+    const w = Math.min(Math.max(window.innerWidth - ev.clientX, 380),
+                       Math.round(window.innerWidth * 0.92));
+    panelEl.style.width = `${w}px`;
+    if (!plotResizeQueued) {
+      plotResizeQueued = true;
+      requestAnimationFrame(() => { plotResizeQueued = false; resizeVisiblePlots(); });
+    }
+  };
+  const onUp = () => {
+    resizerEl.removeEventListener("pointermove", onMove);
+    resizerEl.removeEventListener("pointerup", onUp);
+    resizerEl.classList.remove("dragging");
+    panelEl.style.transition = "";
+    document.body.style.userSelect = "";
+    localStorage.setItem("panelW", parseInt(panelEl.style.width, 10) || PANEL_W_DEFAULT);
+    resizeVisiblePlots();
+  };
+  resizerEl.addEventListener("pointermove", onMove);
+  resizerEl.addEventListener("pointerup", onUp);
+});
+resizerEl.addEventListener("dblclick", () => {
+  panelEl.style.width = `${PANEL_W_DEFAULT}px`;
+  localStorage.setItem("panelW", PANEL_W_DEFAULT);
+  resizeVisiblePlots();
+});
 
 /* ================= live PegelOnline ================= */
 async function fetchJson(url) {
