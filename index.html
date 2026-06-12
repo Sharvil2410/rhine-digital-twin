@@ -372,24 +372,26 @@ async function addDemLayers() {
     `linear-gradient(90deg, ${DEM.stops.map(s => s[1]).join(",")})`;
   document.getElementById("demVmin").textContent = `≤ ${DEM.vmin}`;
   document.getElementById("demVmax").textContent = `≥ ${DEM.vmax}`;
-  if (DEM.tiles) {
-    // whole-reach hillshade pyramid (build_dem_tiles.py) — QGIS-level detail
+  // whole-reach tile pyramids (build_dem_tiles.py / build_dem_color_tiles.py)
+  const TILE_KEYS = { hillshade: "tiles", color: "tiles_color" };
+  for (const m of Object.keys(demLayers)) {
+    const t = DEM[TILE_KEYS[m]];
+    if (!t) continue;
     const prov = new Cesium.UrlTemplateImageryProvider({
-      url: DEM.tiles.url,
-      minimumLevel: DEM.tiles.minZoom, maximumLevel: DEM.tiles.maxZoom,
-      rectangle: Cesium.Rectangle.fromDegrees(...DEM.tiles.bounds),
+      url: t.url, minimumLevel: t.minZoom, maximumLevel: t.maxZoom,
+      rectangle: Cesium.Rectangle.fromDegrees(...t.bounds),
       credit: new Cesium.Credit("PANGAEA.919308"),
     });
     // tiles outside the data corridor are deliberately absent — silence 404s
     prov.errorEvent.addEventListener(() => {});
     const layer = viewer.imageryLayers.addImageryProvider(prov);
     layer.show = false;
-    demLayers.hillshade.push(layer);
+    demLayers[m].push(layer);
   }
   for (const d of DEM.layers) {
     for (const m of Object.keys(demLayers)) {
       if (!d[m]) continue;
-      if (m === "hillshade" && DEM.tiles) continue;   // pyramid replaces singles
+      if (DEM[TILE_KEYS[m]]) continue;                 // pyramid replaces singles
       try {
         const provider = await Cesium.SingleTileImageryProvider.fromUrl(d[m], {
           rectangle: Cesium.Rectangle.fromDegrees(...d.bounds) });

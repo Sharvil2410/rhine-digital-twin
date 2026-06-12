@@ -116,16 +116,29 @@ def lonlat_to_tile(lon, lat, z):
 def stage2_tiles():
     t0 = time.time()
     counts = {}
-    with rasterio.open(HS_PATH) as src, \
-         WarpedVRT(src, crs=CRS_MERC, resampling=Resampling.bilinear,
-                   src_nodata=0, nodata=0) as vrt:
+    with rasterio.open(HS_PATH) as src:
         wgs = transform_bounds(CRS_UTM, CRS_WGS, *src.bounds)
+        # WarpedVRT forbids boundless reads, so give it an extent snapped to
+        # the MIN_Z tile block plus a margin — every tile window then falls
+        # inside. Resolution = exact z[MAX_Z] pixel size so max-zoom tiles
+        # read 1:1 and lower zooms are clean power-of-two decimations.
+        res = 2 * WORLD / 2 ** MAX_Z / 256
+        x0, y0 = lonlat_to_tile(wgs[0], wgs[3], MIN_Z)
+        x1, y1 = lonlat_to_tile(wgs[2], wgs[1], MIN_Z)
+        nw = tile_merc_bounds(MIN_Z, x0, y0)
+        se = tile_merc_bounds(MIN_Z, x1, y1)
+        margin = 256 * res
+        vrt_transform = Affine(res, 0, nw[0] - margin, 0, -res, nw[3] + margin)
+        vrt_w = round((se[2] - nw[0] + 2 * margin) / res)
+        vrt_h = round((nw[3] - se[1] + 2 * margin) / res)
+        vrt = WarpedVRT(src, crs=CRS_MERC, resampling=Resampling.bilinear,
+                        src_nodata=0, nodata=0, transform=vrt_transform,
+                        width=vrt_w, height=vrt_h)
 
         def read_tile(z, x, y, size=256):
             w, s, e, n = tile_merc_bounds(z, x, y)
             win = vrt.window(w, s, e, n)
-            return vrt.read(1, window=win, out_shape=(size, size),
-                            boundless=True, fill_value=0)
+            return vrt.read(1, window=win, out_shape=(size, size))
 
         prev_set = None                      # data tiles of the previous level
         for z in range(MIN_Z, MAX_Z + 1):
