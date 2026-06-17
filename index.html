@@ -36,8 +36,16 @@
     backdrop-filter: blur(8px); border-radius: 14px;
     padding: 12px 16px; color: var(--text-light); max-width: 430px;
   }
-  #header h1 { margin: 0; font-size: 17px; letter-spacing: .2px; }
+  #header h1 { margin: 0 30px 0 0; font-size: 17px; letter-spacing: .2px; }
   #header h1 span { color: var(--accent); }
+  #headerToggle { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+    border: 1px solid var(--glass-border); background: rgba(255,255,255,.08);
+    color: var(--text-light); border-radius: 8px; cursor: pointer; font-size: 14px; }
+  #headerToggle:hover { background: rgba(56,189,248,.3); }
+  #header.collapsed { padding: 7px; max-width: max-content; }
+  #header.collapsed #headerBody { display: none; }
+  #header.collapsed #headerToggle { position: static; }
   #header p { margin: 4px 0 10px; font-size: 12px; color: var(--text-dim); }
   #stationChips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip {
@@ -150,10 +158,13 @@
 <div id="map"></div>
 
 <div id="header">
-  <h1>Lower Rhine River <span>Monitoring</span> Dashboard</h1>
-  <p>Click a gauge on the 3D map (or a chip below) to compare satellite-derived and
-     in-situ water levels &amp; discharge, including the live PegelOnline feed.</p>
-  <div id="stationChips"></div>
+  <button id="headerToggle" title="Hide panel" aria-label="Toggle panel">▾</button>
+  <div id="headerBody">
+    <h1>Lower Rhine River <span>Monitoring</span> Dashboard</h1>
+    <p>Click a gauge on the 3D map (or a chip below) to compare satellite-derived and
+       in-situ water levels &amp; discharge, including the live PegelOnline feed.</p>
+    <div id="stationChips"></div>
+  </div>
 </div>
 
 <div id="demLegend">
@@ -359,6 +370,42 @@ for (const st of DATA.stations) {
   });
 }
 
+/* major cities along the reach (context labels, not clickable) */
+const CITIES = [
+  ["Bingen", 7.898, 49.967], ["Mainz", 8.272, 50.000],
+  ["Koblenz", 7.589, 50.357], ["Andernach", 7.403, 50.439],
+  ["Köln", 6.960, 50.938], ["Düsseldorf", 6.774, 51.228],
+  ["Krefeld", 6.564, 51.333],
+];
+const cityEnts = CITIES.map(([name, lon, lat]) => viewer.entities.add({
+  position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+  point: { pixelSize: 6, color: Cesium.Color.fromCssColorString("#fbbf24"),
+           outlineColor: Cesium.Color.fromCssColorString("#1f2937"), outlineWidth: 1,
+           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+           disableDepthTestDistance: Number.POSITIVE_INFINITY },
+  label: { text: name, font: "500 12.5px 'Segoe UI', sans-serif",
+           fillColor: Cesium.Color.WHITE,
+           outlineColor: Cesium.Color.fromCssColorString("#0f172a"), outlineWidth: 3,
+           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+           pixelOffset: new Cesium.Cartesian2(8, 0),
+           horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+           verticalOrigin: Cesium.VerticalOrigin.CENTER,
+           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+           disableDepthTestDistance: Number.POSITIVE_INFINITY,
+           scaleByDistance: new Cesium.NearFarScalar(2.0e4, 1.05, 8.0e5, 0.55) },
+}));
+
+/* country borders from build_borders.py, draped on the terrain */
+let borderDS = null, bordersOn = true;
+Cesium.GeoJsonDataSource.load("data/borders.geojson", {
+  stroke: Cesium.Color.fromCssColorString("#facc15").withAlpha(0.85),
+  fill: Cesium.Color.TRANSPARENT, strokeWidth: 2, clampToGround: true,
+}).then(ds => {
+  borderDS = ds; ds.show = bordersOn;
+  viewer.dataSources.add(ds);
+  viewer.scene.requestRender();
+}).catch(e => console.warn("borders unavailable:", e));
+
 /* thalweg + SWOT centerline draped on the imagery */
 const PROF = DATA.profile;
 /* Lines follow the river's 3D descent using the SWOT water-surface profile
@@ -514,10 +561,36 @@ if (DEM) {
   chipsEl.appendChild(b);
 }
 
+addLineToggle("Cities", "#fbbf24", cityEnts);
+
+const borderChip = document.createElement("button");
+borderChip.className = "chip";
+borderChip.innerHTML = `<span class="dot" style="background:#facc15"></span>Borders`;
+borderChip.title = "Show / hide country borders";
+borderChip.onclick = () => {
+  bordersOn = !bordersOn;
+  if (borderDS) borderDS.show = bordersOn;
+  borderChip.classList.toggle("off", !bordersOn);
+  viewer.scene.requestRender();
+};
+chipsEl.appendChild(borderChip);
+
 const aboutBtn = document.createElement("button");
 aboutBtn.className = "chip"; aboutBtn.id = "aboutBtn"; aboutBtn.textContent = "ⓘ About";
 aboutBtn.onclick = () => document.getElementById("aboutModal").classList.add("open");
 chipsEl.appendChild(aboutBtn);
+
+/* collapsible header panel */
+const headerEl = document.getElementById("header");
+const headerToggle = document.getElementById("headerToggle");
+function setHeaderCollapsed(c) {
+  headerEl.classList.toggle("collapsed", c);
+  headerToggle.textContent = c ? "☰" : "▾";
+  headerToggle.title = c ? "Show panel" : "Hide panel";
+  localStorage.setItem("headerCollapsed", c ? "1" : "0");
+}
+headerToggle.onclick = () => setHeaderCollapsed(!headerEl.classList.contains("collapsed"));
+setHeaderCollapsed(localStorage.getItem("headerCollapsed") === "1");
 
 document.getElementById("closeBtn").onclick = () => {
   document.getElementById("panel").classList.remove("open");

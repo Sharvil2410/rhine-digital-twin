@@ -1,2 +1,0 @@
-E:\MSC RESEARCH\VS CODE\MSc_SWOT_Rhine\dashboard\build_dem_color_tiles.py:80: RuntimeWarning: Mean of empty slice
-  m = np.nanmean(a, axis=1)

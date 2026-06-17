@@ -1,5 +1,6 @@
 ﻿node_modules/
-data/dem_tiles_build.log
-data/dem_tiles_build.err
+data/_src/
+data/*_build.log
+data/*_build.err
 *.pyc
 __pycache__/
