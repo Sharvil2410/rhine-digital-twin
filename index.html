@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Rhine Digital Twin — SWOT × In-situ</title>
+<title>Lower Rhine River Monitoring Dashboard</title>
 
 <script src="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Cesium.js"></script>
 <link href="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
@@ -150,9 +150,9 @@
 <div id="map"></div>
 
 <div id="header">
-  <h1>Rhine <span>Digital Twin</span> — SWOT × In-situ</h1>
+  <h1>Lower Rhine River <span>Monitoring</span> Dashboard</h1>
   <p>Click a gauge on the 3D map (or a chip below) to compare satellite-derived and
-     in-situ water levels &amp; discharge — including the live PegelOnline feed.</p>
+     in-situ water levels &amp; discharge, including the live PegelOnline feed.</p>
   <div id="stationChips"></div>
 </div>
 
@@ -170,19 +170,19 @@
     <div class="bar"></div>
     <div class="lab"><span id="demVmin"></span><span>Elevation (m)</span><span id="demVmax"></span></div>
   </div>
-  <div>DEM incl. echo-sounded bathymetry — PANGAEA.919308</div>
+  <div>DEM incl. echo-sounded bathymetry (PANGAEA.919308)</div>
 </div>
 
 <div id="credits">
   <b>Data:</b> SWOT (NASA/CNES) · DAHITI (DGFI-TUM) · PegelOnline (WSV) · GloFAS (Copernicus) ·
-  GEOGloWS · Imagery: Esri/Maxar — MSc thesis demo, S. Upadhye
+  GEOGloWS · Imagery: Esri/Maxar · MSc thesis demo, S. Upadhye
 </div>
 
 <div id="panel">
-  <div id="panelResizer" title="Drag to resize — double-click to reset"></div>
+  <div id="panelResizer" title="Drag to resize, double-click to reset"></div>
   <div id="panelHeader">
     <div class="row1">
-      <h2 id="stName">—</h2>
+      <h2 id="stName"></h2>
       <span class="meta" id="stMeta"></span>
       <button id="closeBtn" title="Close">✕</button>
     </div>
@@ -249,7 +249,7 @@
 <div id="aboutModal">
   <div id="aboutCard">
     <button class="closeAbout" onclick="document.getElementById('aboutModal').classList.remove('open')">Close</button>
-    <h2>About this digital twin</h2>
+    <h2>About this dashboard</h2>
     <p>This dashboard accompanies an MSc thesis on estimating <b>Rhine river discharge from the
        SWOT satellite mission</b>. Four PegelOnline gauging stations are used as ground truth:
        Kaub, Bonn, Duisburg-Ruhrort and Wesel.</p>
@@ -261,7 +261,7 @@
           echo-sounded bathymetry (PANGAEA DEM). Variants: fixed vs SWOT-observed slope, literature
           vs calibrated roughness.</li>
       <li><b>Live layer:</b> the most recent 30 days and the current measurement are fetched directly
-          from the PegelOnline REST API every time the page loads — the "twin" always shows the
+          from the PegelOnline REST API every time the page loads, so the dashboard always shows the
           river's present state.</li>
       <li><b>Context models:</b> GloFAS (Copernicus) and GEOGloWS reanalysis discharge can be toggled
           in the legend of the discharge chart.</li>
@@ -759,12 +759,12 @@ function renderProfile() {
       line: { color: "#94a3b8", width: 1.1, dash: "dot" } },
     { x: PROF.swot_high.pts.map(p => p[0]), y: PROF.swot_high.pts.map(p => p[1]),
       customdata: PROF.swot_high.pts.map(p => p[2]),
-      name: "SWOT WSE — high flow", mode: "markers",
+      name: "SWOT WSE (high flow)", mode: "markers",
       marker: { color: "#2563eb", size: 4 },
       hovertemplate: "km %{x:.2f} · %{y:.2f} m · %{customdata}<extra>SWOT high</extra>" },
     { x: PROF.swot_low.pts.map(p => p[0]), y: PROF.swot_low.pts.map(p => p[1]),
       customdata: PROF.swot_low.pts.map(p => p[2]),
-      name: "SWOT WSE — low flow", mode: "markers",
+      name: "SWOT WSE (low flow)", mode: "markers",
       marker: { color: "#ea580c", size: 4 },
       hovertemplate: "km %{x:.2f} · %{y:.2f} m · %{customdata}<extra>SWOT low</extra>" },
   ];
