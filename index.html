@@ -422,6 +422,21 @@ Cesium.GeoJsonDataSource.load("data/borders.geojson", {
   viewer.scene.requestRender();
 }).catch(e => console.warn("borders unavailable:", e));
 
+/* neighbouring country name labels (toggled together with the Borders chip);
+   fade out when zoomed close so they don't clutter the river view */
+const COUNTRIES = [["GERMANY", 7.70, 50.95], ["NETHERLANDS", 5.85, 51.92]];
+const countryEnts = COUNTRIES.map(([name, lon, lat]) => viewer.entities.add({
+  position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+  label: { text: name, font: "700 24px 'Segoe UI', sans-serif",
+           fillColor: Cesium.Color.WHITE.withAlpha(0.85),
+           outlineColor: Cesium.Color.fromCssColorString("#0f172a"), outlineWidth: 4,
+           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+           disableDepthTestDistance: Number.POSITIVE_INFINITY,
+           scaleByDistance: new Cesium.NearFarScalar(8.0e4, 0.6, 1.0e6, 1.35),
+           translucencyByDistance: new Cesium.NearFarScalar(8.0e4, 0.0, 2.2e5, 1.0) },
+}));
+
 /* thalweg + SWOT centerline draped on the imagery */
 const PROF = DATA.profile;
 /* Lines follow the river's 3D descent using the SWOT water-surface profile
@@ -595,10 +610,11 @@ addLineToggle("Cities", "#fbbf24", cityEnts);
 const borderChip = document.createElement("button");
 borderChip.className = "chip";
 borderChip.innerHTML = `<span class="dot" style="background:#facc15"></span>Borders`;
-borderChip.title = "Show / hide country borders";
+borderChip.title = "Show / hide country borders and names";
 borderChip.onclick = () => {
   bordersOn = !bordersOn;
   if (borderDS) borderDS.show = bordersOn;
+  countryEnts.forEach(e => { e.show = bordersOn; });
   borderChip.classList.toggle("off", !bordersOn);
   viewer.scene.requestRender();
 };
