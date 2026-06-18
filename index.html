@@ -433,8 +433,8 @@ const countryEnts = COUNTRIES.map(([name, lon, lat]) => viewer.entities.add({
            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-           scaleByDistance: new Cesium.NearFarScalar(8.0e4, 0.6, 1.0e6, 1.35),
-           translucencyByDistance: new Cesium.NearFarScalar(8.0e4, 0.0, 2.2e5, 1.0) },
+           scaleByDistance: new Cesium.NearFarScalar(2.0e4, 0.7, 1.5e6, 1.4),
+           translucencyByDistance: new Cesium.NearFarScalar(1.5e6, 1.0, 3.0e6, 0.0) },
 }));
 
 /* thalweg + SWOT centerline draped on the imagery */
