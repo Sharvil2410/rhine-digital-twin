@@ -46,6 +46,12 @@
   #header.collapsed { padding: 7px; max-width: max-content; }
   #header.collapsed #headerBody { display: none; }
   #header.collapsed #headerToggle { position: static; }
+  #compass { position: absolute; top: 48px; right: 10px; z-index: 15; width: 50px; height: 50px;
+    border-radius: 50%; background: var(--glass); border: 1px solid var(--glass-border);
+    backdrop-filter: blur(8px); cursor: pointer; display: flex; align-items: center;
+    justify-content: center; }
+  #compass:hover { border-color: var(--accent); }
+  #compass svg { width: 42px; height: 42px; display: block; }
   #header p { margin: 4px 0 10px; font-size: 12px; color: var(--text-dim); }
   #stationChips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip {
@@ -156,6 +162,16 @@
 <body>
 
 <div id="map"></div>
+
+<div id="compass" title="Click to face north">
+  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <polygon points="50,27 57,50 43,50" fill="#ef4444"/>
+    <polygon points="50,73 57,50 43,50" fill="#94a3b8"/>
+    <circle cx="50" cy="50" r="2.6" fill="#0f172a" stroke="#f1f5f9" stroke-width="1.5"/>
+    <text x="50" y="22" text-anchor="middle" font-size="16" font-weight="700"
+          fill="#f1f5f9" font-family="Segoe UI, sans-serif">N</text>
+  </svg>
+</div>
 
 <div id="header">
   <button id="headerToggle" title="Hide panel" aria-label="Toggle panel">▾</button>
@@ -516,6 +532,19 @@ handler.setInputAction(m => {
   viewer.scene.canvas.style.cursor =
     picked && picked.id && DATA.stations.some(s => s.key === picked.id.id) ? "pointer" : "default";
 }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+/* north arrow: rotate so it always points to true north; click to face north */
+const compassSvg = document.querySelector("#compass svg");
+viewer.scene.postRender.addEventListener(() => {
+  compassSvg.style.transform = `rotate(${-Cesium.Math.toDegrees(viewer.camera.heading)}deg)`;
+});
+document.getElementById("compass").onclick = () => {
+  viewer.camera.flyTo({
+    destination: viewer.camera.positionWC.clone(),
+    orientation: { heading: 0, pitch: viewer.camera.pitch, roll: 0 },
+    duration: 0.5,
+  });
+};
 
 /* ================= UI state ================= */
 let current = null;            // selected station record
