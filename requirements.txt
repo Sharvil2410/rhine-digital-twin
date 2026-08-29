@@ -1,0 +1,13 @@
+# Python dependencies for the dashboard build scripts (build_*.py).
+# The dashboard itself is static HTML/JS and needs none of this to run;
+# these are only for regenerating data/ and the DEM tiles.
+#
+#   python -m venv .venv
+#   .venv\Scripts\activate
+#   pip install -r requirements.txt
+
+numpy>=1.24
+pandas>=2.0
+matplotlib>=3.7
+rasterio>=1.3
+Pillow>=10.0
