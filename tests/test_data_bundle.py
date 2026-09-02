@@ -62,6 +62,17 @@ def test_daily_series_are_sorted_date_value_pairs(bundle):
         assert all(isinstance(v, (int, float)) for _, v in series), s["key"]
 
 
+def test_swot_passes_carry_relative_uncertainty(bundle):
+    for s in bundle["stations"]:
+        passes = s["swot_manning"]
+        assert passes, s["key"]
+        with_u = [p for p in passes if "u_rel" in p]
+        # Kaub keeps only in-channel passes in its uncertainty table, so ~75% is expected there
+        assert len(with_u) >= 0.6 * len(passes), f"{s['key']}: uncertainty missing on most passes"
+        for p in with_u:
+            assert 0 < p["u_rel"] < 1.5 and 0 <= p["u_rel_fixed"] <= p["u_rel"] + 1e-9, (s["key"], p["t"])
+
+
 def test_borders_geojson_is_line_geometry():
     gj = json.loads(BORDERS.read_text(encoding="utf-8"))
     assert gj["type"] == "FeatureCollection"

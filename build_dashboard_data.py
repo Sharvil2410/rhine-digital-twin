@@ -97,15 +97,43 @@ def dahiti_series(csv_path):
     ]
 
 
-def swot_manning(csv_path):
+def uncertainty_map(csv_path):
+    """Per-pass relative discharge uncertainty from the thesis error propagation.
+
+    Returns {datetime: (u_rel_total, u_rel_without_slope_term)}. The total is
+    the first-order relative sigma of the SWOT-slope branch; the second value
+    removes the slope contribution, which is the right figure for the fixed-
+    slope branch (its slope carries no SWOT measurement uncertainty).
+    """
+    if not csv_path.exists():
+        print(f"  !! missing {csv_path.name} (no uncertainty bars)")
+        return {}
+    df = pd.read_csv(csv_path)
+    for c in ("rel_sigma_Q_total", "rel_sigma_Q_from_S"):
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    df = df.dropna(subset=["datetime", "rel_sigma_Q_total"])
+    g = df.groupby("datetime")[["rel_sigma_Q_total", "rel_sigma_Q_from_S"]].mean()
+    out = {}
+    for t, r in g.iterrows():
+        tot = float(r["rel_sigma_Q_total"])
+        s = float(r["rel_sigma_Q_from_S"]) if pd.notna(r["rel_sigma_Q_from_S"]) else 0.0
+        no_s = max(tot * tot - s * s, 0.0) ** 0.5
+        out[str(t)] = (round(tot, 4), round(no_s, 4))
+    return out
+
+
+def swot_manning(csv_path, unc=None):
     """Calibrated modified-Manning CSV -> one record per SWOT pass.
 
     Stations with several cross-section profiles are averaged per pass
-    datetime so the dashboard shows one point per overpass.
+    datetime so the dashboard shows one point per overpass. When an
+    uncertainty map is given, each record also carries u_rel (SWOT-slope
+    branch) and u_rel_fixed (fixed-slope branch) relative sigmas.
     """
     if not csv_path.exists():
         print(f"  !! missing {csv_path.name}")
         return []
+    unc = unc or {}
     df = pd.read_csv(csv_path)
     cols = {
         "wse_m": "wse",
@@ -123,8 +151,13 @@ def swot_manning(csv_path):
         rec = {"t": str(r["datetime"])}
         for src, dst in cols.items():
             rec[dst] = None if pd.isna(r[src]) else round(float(r[src]), 1 if "Q_" in src else 3)
+        u = unc.get(str(r["datetime"]))
+        if u:
+            rec["u_rel"], rec["u_rel_fixed"] = u
         out.append(rec)
     out.sort(key=lambda r: r["t"])
+    n_u = sum(1 for r in out if "u_rel" in r)
+    print(f"  uncertainty attached to {n_u}/{len(out)} passes")
     return out
 
 
@@ -266,7 +299,8 @@ def main():
             DATA / f"{key}_pegelonline_discharge_2023_2026.csv", "discharge_m3s", 1)
         rec["dahiti_wl"] = dahiti_series(DATA / f"{key}_dahiti_waterlevel_2023_2026.csv")
         rec["swot_manning"] = swot_manning(
-            DATA / f"{key}_swot_modified_manning_discharge_calibrated_2023_2026.csv")
+            DATA / f"{key}_swot_modified_manning_discharge_calibrated_2023_2026.csv",
+            uncertainty_map(DATA / f"{key}_swot_q_uncertainty.csv"))
         rec["glofas_q_daily"] = daily_series(
             DATA / f"{key}_glofas_discharge_2023_2026.csv", "discharge_m3s", 1)
         rec["geoglows_q_daily"] = daily_series(

@@ -4,7 +4,12 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Lower Rhine River Monitoring Dashboard</title>
+<meta name="description" content="Live digital twin of the Lower Rhine: SWOT satellite discharge, DAHITI altimetry and PegelOnline gauges on a 3D globe." />
+<meta name="theme-color" content="#0a1020" />
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <script src="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Cesium.js"></script>
 <link href="https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
@@ -13,247 +18,386 @@
 
 <style>
   :root {
-    --panel-bg: #ffffff;
-    --glass: rgba(16, 24, 38, 0.82);
-    --glass-border: rgba(255, 255, 255, 0.14);
-    --accent: #38bdf8;
-    --text-light: #f1f5f9;
-    --text-dim: #94a3b8;
-    --insitu: #1f77b4;
-    --dahiti: #ff7f0e;
-    --live: #16a34a;
-    --swot: #d62728;
+    --bg0: #0a1020; --bg1: #101a2e; --bg2: #172236; --bg3: #1e2b44;
+    --glass: rgba(13, 20, 36, 0.86); --line: rgba(148, 163, 184, 0.16);
+    --line-strong: rgba(148, 163, 184, 0.3);
+    --text: #e8eef8; --muted: #93a4bd; --faint: #64748b;
+    --accent: #4cc9f0; --accent-ink: #062634; --accent-dim: rgba(76, 201, 240, 0.18);
+    --insitu: #8fb8ff; --live: #34d399; --dahiti: #fbbf24; --swot: #fb7185;
+    --glofas: #94a3b8; --geoglows: #c084fc;
+    --low: #f59e0b; --normal: #34d399; --high: #f43f5e; --unknown: #64748b;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", Consolas, monospace;
+    --radius: 12px; --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; overflow: hidden;
-    font-family: "Segoe UI", system-ui, -apple-system, sans-serif; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg0);
+    color: var(--text); font-family: var(--sans); font-size: 13px; }
+  button { font-family: inherit; }
+  button:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  svg.ic { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8;
+    stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
   #map { position: absolute; inset: 0; }
+  .cesium-viewer-bottom { left: auto !important; right: 12px !important; bottom: 6px !important; }
+  .cesium-widget-credits { font-family: var(--sans); font-size: 10px; }
+  .cesium-viewer-toolbar { top: 12px; right: 12px; }
+  .cesium-button { background: var(--glass); border-color: var(--line); color: var(--text);
+    backdrop-filter: blur(8px); }
+  .cesium-button:hover { background: var(--bg3); border-color: var(--line-strong); }
+
+  /* ---------- loading ---------- */
+  #loader { position: absolute; inset: 0; z-index: 100; background: var(--bg0);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; transition: opacity .6s ease; }
+  #loader.hide { opacity: 0; pointer-events: none; }
+  #loader .brand { font-size: 22px; font-weight: 600; letter-spacing: .2px; }
+  #loader .brand span { color: var(--accent); }
+  #loader .msg { color: var(--muted); font-size: 12.5px; }
+  #loader .spin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line);
+    border-top-color: var(--accent); animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #skipIntro { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+    z-index: 40; background: var(--glass); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 999px; padding: 7px 14px; font-size: 12px; cursor: pointer; display: none;
+    backdrop-filter: blur(8px); }
+  #skipIntro:hover { color: var(--text); border-color: var(--line-strong); }
+  @media (prefers-reduced-motion: reduce) { #loader { transition: none; } }
 
   /* ---------- header ---------- */
-  #header {
-    position: absolute; top: 14px; left: 14px; z-index: 30;
-    background: var(--glass); border: 1px solid var(--glass-border);
-    backdrop-filter: blur(8px); border-radius: 14px;
-    padding: 12px 16px; color: var(--text-light); max-width: 430px;
-  }
-  #header h1 { margin: 0 30px 0 0; font-size: 17px; letter-spacing: .2px; }
+  #header { position: absolute; top: 12px; left: 12px; z-index: 30; width: 460px;
+    max-width: calc(100vw - 24px); background: var(--glass); border: 1px solid var(--line);
+    backdrop-filter: blur(10px); border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 12px 14px 12px; }
+  #header h1 { margin: 0 34px 2px 0; font-size: 16px; font-weight: 600; letter-spacing: .1px; }
   #header h1 span { color: var(--accent); }
-  #headerToggle { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
+  #header .sub { margin: 0 0 10px; font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+  #headerToggle { position: absolute; top: 9px; right: 9px; width: 26px; height: 26px;
     display: flex; align-items: center; justify-content: center; padding: 0;
-    border: 1px solid var(--glass-border); background: rgba(255,255,255,.08);
-    color: var(--text-light); border-radius: 8px; cursor: pointer; font-size: 14px; }
-  #headerToggle:hover { background: rgba(56,189,248,.3); }
-  #header.collapsed { padding: 7px; max-width: max-content; }
+    border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--muted);
+    border-radius: 8px; cursor: pointer; }
+  #headerToggle:hover { color: var(--text); border-color: var(--line-strong); }
+  #header.collapsed { width: auto; padding: 6px; }
   #header.collapsed #headerBody { display: none; }
   #header.collapsed #headerToggle { position: static; }
-  #compass { position: absolute; top: 48px; right: 10px; z-index: 15; width: 50px; height: 50px;
-    border-radius: 50%; background: var(--glass); border: 1px solid var(--glass-border);
+
+  .rowLabel { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--faint); margin: 8px 0 5px; font-weight: 600; }
+  #stationRow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .stTile { border: 1px solid var(--line); background: rgba(255,255,255,.03); border-radius: 10px;
+    padding: 7px 8px 6px; cursor: pointer; text-align: left; color: var(--text);
+    transition: background .15s, border-color .15s; min-width: 0; }
+  .stTile:hover { background: var(--bg3); border-color: var(--line-strong); }
+  .stTile.active { border-color: var(--accent); background: var(--accent-dim); }
+  .stTile .n { font-size: 11.5px; font-weight: 600; line-height: 1.15; min-height: 2.3em;
+    overflow-wrap: anywhere; }
+  .stTile .v { font-family: var(--mono); font-size: 14px; margin-top: 2px; }
+  .stTile .v small { font-family: var(--sans); font-size: 10.5px; color: var(--muted); }
+  .stTile .s { display: flex; align-items: center; gap: 5px; font-size: 10.5px;
+    color: var(--muted); margin-top: 3px; white-space: nowrap; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 99px;
+    background: var(--unknown); flex: none; }
+  .dot.low { background: var(--low); } .dot.normal { background: var(--normal); }
+  .dot.high { background: var(--high); }
+  .trend { font-family: var(--mono); }
+  .trend.up { color: var(--high); } .trend.down { color: var(--insitu); }
+
+  #viewRow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .btn { border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--text);
+    border-radius: 8px; padding: 6px 11px; font-size: 12px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { background: var(--bg3); border-color: var(--line-strong); }
+  .btn.active { background: var(--accent); color: var(--accent-ink); border-color: transparent;
+    font-weight: 600; }
+  .btn.ghost { color: var(--muted); }
+
+  #layerRow { display: flex; flex-wrap: wrap; gap: 5px 12px; }
+  .sw { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-size: 12px;
+    color: var(--text); user-select: none; }
+  .sw input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .sw .track { width: 28px; height: 16px; border-radius: 99px; background: rgba(255,255,255,.12);
+    border: 1px solid var(--line); position: relative; transition: background .15s; flex: none; }
+  .sw .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px;
+    height: 10px; border-radius: 99px; background: var(--muted); transition: transform .15s, background .15s; }
+  .sw input:checked + .track { background: var(--accent-dim); border-color: var(--accent); }
+  .sw input:checked + .track::after { transform: translateX(12px); background: var(--accent); }
+  .sw input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sw .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+
+  /* ---------- compass, scale bar, DEM card, credits ---------- */
+  #compass { position: absolute; top: 52px; right: 12px; z-index: 15; width: 44px; height: 44px;
+    border-radius: 50%; background: var(--glass); border: 1px solid var(--line);
     backdrop-filter: blur(8px); cursor: pointer; display: flex; align-items: center;
     justify-content: center; }
   #compass:hover { border-color: var(--accent); }
-  #compass svg { width: 42px; height: 42px; display: block; }
-  #header p { margin: 4px 0 10px; font-size: 12px; color: var(--text-dim); }
-  #stationChips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip {
-    border: 1px solid var(--glass-border); background: rgba(255,255,255,.06);
-    color: var(--text-light); border-radius: 999px; padding: 5px 12px;
-    font-size: 12.5px; cursor: pointer; transition: all .15s;
-  }
-  .chip:hover { background: rgba(56,189,248,.25); }
-  .chip.active { background: var(--accent); color: #06283d; font-weight: 600; border-color: transparent; }
-  .chip .dot { display: inline-block; width: 10px; height: 10px; border-radius: 99px;
-    margin-right: 6px; vertical-align: -1px; }
-  .chip.off { opacity: .4; }
-  #aboutBtn { margin-left: auto; }
-  .segBtn { border: 1px solid #cbd5e1; background: #f8fafc; color: #334155;
-    border-radius: 8px; padding: 6px 12px; font-size: 12.5px; cursor: pointer; }
-  .segBtn.active { background: #0ea5e9; border-color: #0ea5e9; color: white; font-weight: 600; }
+  #compass svg { width: 36px; height: 36px; display: block; }
+  #scaleBar { position: absolute; right: 12px; bottom: 30px; z-index: 12; color: var(--muted);
+    font-size: 10.5px; font-family: var(--mono); text-align: center; pointer-events: none; }
+  #scaleBar .bar { height: 5px; border: 1.5px solid var(--muted); border-top: none;
+    margin: 0 auto 3px; width: 100px; }
 
-  /* ---------- right panel ---------- */
-  #panel {
-    position: absolute; top: 0; right: 0; height: 100%; width: 560px; max-width: 100vw;
-    background: var(--panel-bg); z-index: 20; box-shadow: -8px 0 30px rgba(0,0,0,.35);
-    transform: translateX(105%); transition: transform .35s ease; display: flex; flex-direction: column;
-  }
+  .card { background: var(--glass); border: 1px solid var(--line); border-radius: 10px;
+    backdrop-filter: blur(8px); color: var(--muted); }
+  #demCard { position: absolute; left: 12px; bottom: 86px; z-index: 10; width: 270px;
+    padding: 9px 12px; font-size: 11px; display: none; }
+  #demCard .demRow { display: flex; gap: 10px; align-items: center; margin-bottom: 7px;
+    color: var(--text); font-size: 11.5px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: none; background: transparent; color: var(--muted); padding: 4px 9px;
+    font-size: 11.5px; cursor: pointer; }
+  .seg button.active { background: var(--accent-dim); color: var(--text); }
+  #demCard input[type=range] { flex: 1; accent-color: var(--accent); height: 14px; }
+  #demRamp .bar { height: 9px; border-radius: 5px; margin-bottom: 4px; }
+  #demRamp .lab { display: flex; justify-content: space-between; color: var(--text); }
+  #demRamp { margin-bottom: 5px; }
+  #demCard a, #credits a { color: var(--text); text-decoration: underline; }
+  #credits { position: absolute; left: 12px; bottom: 30px; z-index: 10; font-size: 10.5px;
+    padding: 6px 10px; max-width: 460px; line-height: 1.4; }
+  #credits b { color: var(--text); font-weight: 600; }
+
+  /* ---------- side panel ---------- */
+  #panel { position: absolute; top: 0; right: 0; height: 100%; width: 580px; max-width: 100vw;
+    background: var(--bg1); z-index: 20; box-shadow: -12px 0 40px rgba(0,0,0,.5);
+    border-left: 1px solid var(--line); transform: translateX(105%);
+    transition: transform .35s ease; display: flex; flex-direction: column; }
   #panel.open { transform: translateX(0); }
+  #sheetHandle { display: none; }
   #panelResizer { position: absolute; left: 0; top: 0; height: 100%; width: 12px;
     cursor: ew-resize; z-index: 30; touch-action: none; }
   #panelResizer::before { content: ""; position: absolute; left: 4px; top: 50%;
     transform: translateY(-50%); width: 4px; height: 46px; border-radius: 4px;
-    background: #cbd5e1; transition: background .15s; }
-  #panelResizer:hover::before, #panelResizer.dragging::before { background: #0ea5e9; }
-  @media (max-width: 720px) { #panelResizer { display: none; } }
-  #panelHeader { padding: 14px 18px 10px; border-bottom: 1px solid #e2e8f0; }
+    background: var(--line-strong); transition: background .15s; }
+  #panelResizer:hover::before, #panelResizer.dragging::before { background: var(--accent); }
+  #panelHeader { padding: 14px 18px 10px; border-bottom: 1px solid var(--line); }
   #panelHeader .row1 { display: flex; align-items: baseline; gap: 10px; }
-  #panelHeader h2 { margin: 0; font-size: 20px; color: #0f172a; }
-  #panelHeader .meta { font-size: 12px; color: #64748b; }
-  #closeBtn { margin-left: auto; border: none; background: #f1f5f9; border-radius: 8px;
-    width: 30px; height: 30px; font-size: 15px; cursor: pointer; color: #334155; }
-  #liveChips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-  .liveChip { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534;
-    border-radius: 8px; padding: 5px 10px; font-size: 12px; }
-  .liveChip b { font-size: 13.5px; }
-  .liveChip.stale { background: #fafaf9; border-color: #e7e5e4; color: #78716c; }
-  .liveChip.dahiti { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+  #panelHeader h2 { margin: 0; font-size: 19px; font-weight: 600; }
+  #panelHeader .meta { font-size: 11.5px; color: var(--muted); }
+  #closeBtn { margin-left: auto; border: 1px solid var(--line); background: rgba(255,255,255,.04);
+    border-radius: 8px; width: 30px; height: 30px; cursor: pointer; color: var(--muted);
+    display: flex; align-items: center; justify-content: center; }
+  #closeBtn:hover { color: var(--text); border-color: var(--line-strong); }
+  #nowStrip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  .now { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 7px;
+    background: var(--bg2); min-width: 0; }
+  .now .k { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint);
+    font-weight: 600; display: flex; align-items: center; gap: 5px; }
+  .now .v { font-family: var(--mono); font-size: 17px; margin-top: 3px; color: var(--text);
+    white-space: nowrap; }
+  .now .v small { font-family: var(--sans); font-size: 10.5px; color: var(--muted); }
+  .now .t { font-size: 10.5px; color: var(--muted); margin-top: 2px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .now.stage { border-color: rgba(52,211,153,.35); } .now.q { border-color: rgba(143,184,255,.35); }
+  .now.dahiti { border-color: rgba(251,191,36,.35); }
+  .now.stale .v { color: var(--muted); }
+  #statusLine { margin-top: 8px; font-size: 11.5px; color: var(--muted); display: flex;
+    align-items: center; gap: 7px; flex-wrap: wrap; }
 
   #tabs { display: flex; gap: 4px; padding: 10px 18px 0; }
-  .tab { border: none; background: #f1f5f9; color: #475569; padding: 8px 16px;
-    border-radius: 9px 9px 0 0; font-size: 13.5px; cursor: pointer; font-weight: 600; }
-  .tab.active { background: #0ea5e9; color: white; }
+  .tab { border: 1px solid transparent; background: transparent; color: var(--muted);
+    padding: 7px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; font-weight: 500; }
+  .tab:hover { color: var(--text); background: rgba(255,255,255,.04); }
+  .tab.active { background: var(--bg2); color: var(--text); border-color: var(--line); font-weight: 600; }
 
-  #panelBody { flex: 1; overflow-y: auto; padding: 12px 18px 20px; }
-  .controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
-    font-size: 12.5px; color: #334155; margin-bottom: 6px; }
-  .controls label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
-  .controls .group { display: flex; gap: 10px; align-items: center;
-    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 10px; }
-  .controls .group b { color: #0f172a; font-weight: 600; }
+  #panelBody { flex: 1; overflow-y: auto; padding: 12px 18px 22px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;
+    font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .controls .group { display: flex; gap: 6px; align-items: center; }
+  .controls .group b { color: var(--text); font-weight: 500; margin-right: 2px; }
   .plot { width: 100%; height: 380px; }
-
-  .metricsCard { margin-top: 10px; background: #f8fafc; border: 1px solid #e2e8f0;
+  .metricsCard { margin-top: 10px; background: var(--bg2); border: 1px solid var(--line);
     border-radius: 10px; padding: 10px 14px; }
-  .metricsCard h4 { margin: 0 0 8px; font-size: 12.5px; color: #475569;
-    text-transform: uppercase; letter-spacing: .4px; }
-  .metricsGrid { display: flex; flex-wrap: wrap; gap: 18px; }
-  .metric { min-width: 70px; }
-  .metric .v { font-size: 17px; font-weight: 650; color: #0f172a; }
-  .metric .k { font-size: 11px; color: #64748b; }
-  .note { font-size: 11.5px; color: #94a3b8; margin-top: 8px; }
+  .metricsCard h4 { margin: 0 0 8px; font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .metricsGrid { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+  .metric { min-width: 66px; }
+  .metric .v { font-family: var(--mono); font-size: 16px; color: var(--text); }
+  .metric .k { font-size: 10.5px; color: var(--muted); }
+  .note { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+  .note b { color: var(--text); font-weight: 500; }
 
-  /* ---------- about modal ---------- */
-  #aboutModal { position: absolute; inset: 0; z-index: 50; background: rgba(2,6,23,.6);
+  /* ---------- about ---------- */
+  #aboutModal { position: absolute; inset: 0; z-index: 60; background: rgba(2,6,23,.7);
     display: none; align-items: center; justify-content: center; }
   #aboutModal.open { display: flex; }
-  #aboutCard { background: white; border-radius: 16px; max-width: 620px; width: 92vw;
-    max-height: 84vh; overflow-y: auto; padding: 24px 28px; color: #1e293b; }
-  #aboutCard h2 { margin-top: 0; }
-  #aboutCard p, #aboutCard li { font-size: 13.5px; line-height: 1.55; }
-  #aboutCard .closeAbout { float: right; border: none; background: #f1f5f9;
-    border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  #aboutCard { background: var(--bg1); border: 1px solid var(--line); border-radius: 14px;
+    max-width: 640px; width: 92vw; max-height: 84vh; overflow-y: auto; padding: 22px 26px;
+    color: var(--text); box-shadow: var(--shadow); }
+  #aboutCard h2 { margin: 0 0 8px; font-size: 18px; }
+  #aboutCard p, #aboutCard li { font-size: 13px; line-height: 1.55; color: var(--muted); }
+  #aboutCard b { color: var(--text); font-weight: 500; }
+  #aboutCard .closeAbout { float: right; }
 
-  #credits { position: absolute; left: 14px; bottom: 36px; z-index: 10;
-    background: var(--glass); border: 1px solid var(--glass-border); border-radius: 10px;
-    color: var(--text-dim); font-size: 10.5px; padding: 6px 10px; max-width: 420px; }
-  #credits b { color: var(--text-light); font-weight: 600; }
-  #credits a, #demLegend a { color: var(--text-light); text-decoration: underline; }
-
-  #demLegend { position: absolute; left: 14px; bottom: 92px; z-index: 10; width: 265px;
-    background: var(--glass); border: 1px solid var(--glass-border); border-radius: 10px;
-    padding: 9px 12px; color: var(--text-dim); font-size: 10.5px; display: none; }
-  #demLegend .bar { height: 10px; border-radius: 5px; margin-bottom: 4px; }
-  #demLegend .lab { display: flex; justify-content: space-between; color: var(--text-light); }
-  #demLegend .demRow { display: flex; gap: 10px; align-items: center; margin-bottom: 7px;
-    color: var(--text-light); font-size: 11.5px; }
-  #demLegend .demRow label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
-  #demLegend input[type=range] { flex: 1; accent-color: var(--accent); height: 14px; }
-  #demRamp { margin-bottom: 5px; }
-
-  @media (max-width: 720px) {
-    #panel { width: 100vw; }
-    #header { max-width: calc(100vw - 28px); }
-    .plot { height: 320px; }
-  }
-  /* the open panel is the focus on narrow screens — header would cover its tabs */
+  /* ---------- responsive ---------- */
   @media (max-width: 1000px) {
-    body.panelOpen #header, body.panelOpen #credits,
-    body.panelOpen #demLegend { display: none !important; }
+    body.panelOpen #credits, body.panelOpen #demCard, body.panelOpen #scaleBar { display: none !important; }
+  }
+  @media (max-width: 720px) {
+    #header { width: calc(100vw - 24px); padding: 10px 12px; }
+    #header .sub { display: none; }
+    #stationRow { display: flex; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+    #stationRow .stTile { flex: 0 0 132px; }
+    #panel { top: auto; bottom: 0; left: 0; width: 100vw; height: 74vh;
+      border-left: none; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0;
+      box-shadow: 0 -10px 40px rgba(0,0,0,.5); transform: translateY(105%); }
+    #panel.open { transform: translateY(0); }
+    #panelResizer { display: none; }
+    #sheetHandle { display: block; width: 44px; height: 4px; border-radius: 99px;
+      background: var(--line-strong); margin: 8px auto 0; }
+    #panelHeader { padding-top: 6px; }
+    #nowStrip { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+    #nowStrip .now { flex: 0 0 150px; }
+    .now .v { font-size: 15px; }
+    .plot { height: 300px; }
+    body.panelOpen #header { display: none; }
   }
 </style>
 </head>
 <body>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 6-8"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M3 17c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2"/></symbol>
+  <symbol id="i-sat" viewBox="0 0 24 24"><path d="M13 7l4-4 4 4-4 4zM7 13l4 4-4 4-4-4zM11 11l2 2M17 11c1 1 1 3 0 4M13 17c1 1 3 1 4 0"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+</svg>
+
+<div id="loader" role="status" aria-live="polite">
+  <div class="brand">Lower Rhine <span>Monitoring</span></div>
+  <div class="spin" aria-hidden="true"></div>
+  <div class="msg" id="loaderMsg">Loading terrain and live gauges</div>
+</div>
+<button id="skipIntro">Skip intro</button>
+
 <div id="map"></div>
 
-<div id="compass" title="Click to face north">
+<div id="compass" title="Click to face north" role="button" tabindex="0" aria-label="Face north">
   <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-    <polygon points="50,27 57,50 43,50" fill="#ef4444"/>
-    <polygon points="50,73 57,50 43,50" fill="#94a3b8"/>
-    <circle cx="50" cy="50" r="2.6" fill="#0f172a" stroke="#f1f5f9" stroke-width="1.5"/>
+    <polygon points="50,27 57,50 43,50" fill="#f43f5e"/>
+    <polygon points="50,73 57,50 43,50" fill="#93a4bd"/>
+    <circle cx="50" cy="50" r="2.6" fill="#0a1020" stroke="#e8eef8" stroke-width="1.5"/>
     <text x="50" y="22" text-anchor="middle" font-size="16" font-weight="700"
-          fill="#f1f5f9" font-family="Segoe UI, sans-serif">N</text>
+          fill="#e8eef8" font-family="IBM Plex Sans, sans-serif">N</text>
   </svg>
 </div>
+<div id="scaleBar" aria-hidden="true"><div class="bar"></div><span id="scaleLabel"></span></div>
 
 <div id="header">
-  <button id="headerToggle" title="Hide panel" aria-label="Toggle panel">▾</button>
+  <button id="headerToggle" title="Hide panel" aria-label="Toggle panel"><svg class="ic"><use href="#i-chev"/></svg></button>
   <div id="headerBody">
     <h1>Lower Rhine River <span>Monitoring</span> Dashboard</h1>
-    <p>Click a gauge on the 3D map (or a chip below) to compare satellite-derived and
-       in-situ water levels &amp; discharge, including the live PegelOnline feed.</p>
-    <div id="stationChips"></div>
+    <p class="sub">SWOT satellite discharge, DAHITI altimetry and live PegelOnline gauges on one 3D globe.
+      Pick a station to compare satellite and in-situ records.</p>
+    <div class="rowLabel">Stations, live stage</div>
+    <div id="stationRow"></div>
+    <div class="rowLabel">Views</div>
+    <div id="viewRow">
+      <button class="btn" id="profileBtn"><svg class="ic"><use href="#i-chart"/></svg>Long profile</button>
+      <button class="btn ghost" id="aboutBtn"><svg class="ic"><use href="#i-info"/></svg>About</button>
+    </div>
+    <div class="rowLabel">Map layers</div>
+    <div id="layerRow"></div>
   </div>
 </div>
 
-<div id="demLegend">
+<div id="demCard" class="card">
   <div class="demRow">
-    <label><input type="radio" name="demMode" value="hillshade" checked> Hillshade</label>
-    <label><input type="radio" name="demMode" value="color"> Color relief</label>
+    <span>DEM</span>
+    <div class="seg" id="demModeSeg">
+      <button data-mode="hillshade" class="active">Hillshade</button>
+      <button data-mode="color">Colour relief</button>
+    </div>
   </div>
   <div class="demRow">
     <span>Intensity</span>
-    <input id="demAlphaSlider" type="range" min="10" max="100" value="80">
-    <span id="demAlphaVal">80%</span>
+    <input id="demAlphaSlider" type="range" min="10" max="100" value="80" aria-label="DEM intensity">
+    <span id="demAlphaVal" class="mono">80%</span>
   </div>
   <div id="demRamp">
     <div class="bar"></div>
     <div class="lab"><span id="demVmin"></span><span>Elevation (m)</span><span id="demVmax"></span></div>
   </div>
-  <div>DEM incl. echo-sounded bathymetry (<a href="https://doi.pangaea.de/10.1594/PANGAEA.919308" target="_blank" rel="noopener">PANGAEA.919308</a>)</div>
+  <div>1 m DEM with echo-sounded bathymetry, <a href="https://doi.pangaea.de/10.1594/PANGAEA.919308" target="_blank" rel="noopener">PANGAEA.919308</a></div>
 </div>
 
-<div id="credits">
-  <b>Data:</b> SWOT (NASA/CNES) · DAHITI (DGFI-TUM) · PegelOnline (WSV) · GloFAS (Copernicus) ·
-  GEOGloWS · DEM: <a href="https://doi.pangaea.de/10.1594/PANGAEA.919308" target="_blank" rel="noopener">PANGAEA.919308</a> ·
-  Imagery: Esri/Maxar · MSc thesis demo, S. Upadhye
+<div id="credits" class="card">
+  <b>Data</b> SWOT (NASA/CNES) · DAHITI (DGFI-TUM) · PegelOnline (WSV) · GloFAS (Copernicus) ·
+  GEOGloWS · DEM <a href="https://doi.pangaea.de/10.1594/PANGAEA.919308" target="_blank" rel="noopener">PANGAEA.919308</a> ·
+  Imagery Esri/Maxar · MSc thesis, S. Upadhye
 </div>
 
-<div id="panel">
+<div id="panel" aria-label="Station panel">
   <div id="panelResizer" title="Drag to resize, double-click to reset"></div>
+  <div id="sheetHandle" aria-hidden="true"></div>
   <div id="panelHeader">
     <div class="row1">
       <h2 id="stName"></h2>
       <span class="meta" id="stMeta"></span>
-      <button id="closeBtn" title="Close">✕</button>
+      <button id="closeBtn" title="Close" aria-label="Close panel"><svg class="ic"><use href="#i-close"/></svg></button>
     </div>
-    <div id="liveChips"></div>
+    <div id="nowStrip"></div>
+    <div id="statusLine"></div>
   </div>
-  <div id="tabs">
-    <button class="tab active" data-tab="wl">Water level</button>
-    <button class="tab" data-tab="q">Discharge</button>
+  <div id="tabs" role="tablist">
+    <button class="tab active" data-tab="wl" role="tab">Water level</button>
+    <button class="tab" data-tab="q" role="tab">Discharge</button>
+    <button class="tab" data-tab="val" role="tab">Validation</button>
   </div>
   <div id="panelBody">
     <div id="wlView">
       <div class="controls">
-        <div class="group"><b>View:</b>
-          <label><input type="radio" name="wlMode" value="abs" checked> Absolute (dual axis)</label>
-          <label><input type="radio" name="wlMode" value="anom"> Anomaly overlay</label>
+        <div class="group"><b>View</b>
+          <div class="seg" id="wlModeSeg">
+            <button data-v="abs" class="active">Absolute, dual axis</button>
+            <button data-v="anom">Anomaly overlay</button>
+          </div>
         </div>
       </div>
       <div id="wlPlot" class="plot"></div>
       <div class="metricsCard">
-        <h4>DAHITI vs in-situ agreement (thesis validation)</h4>
+        <h4>DAHITI vs in-situ agreement, thesis validation</h4>
         <div class="metricsGrid" id="wlMetrics"></div>
-        <div class="note">Demeaned comparison of matched passes; datum offset separates the
+        <div class="note">Demeaned comparison of matched passes; the datum offset separates the
           local gauge zero from the DAHITI ellipsoidal reference.</div>
       </div>
     </div>
     <div id="qView" style="display:none">
       <div class="controls">
-        <div class="group"><b>Slope:</b>
-          <label><input type="radio" name="qSlope" value="fixed" checked> Fixed 3.0×10⁻⁴</label>
-          <label><input type="radio" name="qSlope" value="swot"> SWOT-observed</label>
+        <div class="group"><b>Slope</b>
+          <div class="seg" id="qSlopeSeg">
+            <button data-v="fixed" class="active">Fixed 3.0e-4</button>
+            <button data-v="swot">SWOT-observed</button>
+          </div>
         </div>
-        <div class="group"><b>Manning n:</b>
-          <label><input type="radio" name="qCal" value="uncal" checked> Literature 0.030</label>
-          <label><input type="radio" name="qCal" value="cal"> Calibrated</label>
+        <div class="group"><b>Manning n</b>
+          <div class="seg" id="qCalSeg">
+            <button data-v="uncal" class="active">Literature 0.030</button>
+            <button data-v="cal">Calibrated</button>
+          </div>
         </div>
       </div>
       <div id="qPlot" class="plot"></div>
       <div class="metricsCard">
-        <h4>Modified Manning vs in-situ (selected variant, computed live)</h4>
+        <h4>Modified Manning vs in-situ, selected variant, computed live</h4>
         <div class="metricsGrid" id="qMetrics"></div>
-        <div class="note">SWOT passes matched to same-day mean in-situ discharge.
-          GloFAS / GEOGloWS can be toggled in the chart legend.</div>
+        <div class="note">SWOT passes matched to same-day mean in-situ discharge. Bars are one sigma from
+          first-order propagation of SWOT width, slope and elevation errors, DEM error and Manning n.
+          GloFAS and GEOGloWS can be hidden in the legend.</div>
+      </div>
+    </div>
+    <div id="valView" style="display:none">
+      <div class="controls"><span>Uses the slope and Manning n selected on the Discharge tab.</span></div>
+      <div id="valPlot" class="plot"></div>
+      <div class="metricsCard">
+        <h4>Matched-pair skill</h4>
+        <div class="metricsGrid" id="valMetrics"></div>
+        <div class="note">Each point is one SWOT pass against the same-day mean in-situ discharge.
+          The dashed line is 1:1; the solid line is the least-squares fit with its equation.</div>
       </div>
     </div>
     <div id="profileView" style="display:none">
@@ -262,59 +406,63 @@
       <div class="metricsCard">
         <h4>How to read this profile</h4>
         <div class="note" style="margin-top:0">
-          <b>Thalweg bed:</b> deepest DEM pixel on a ±250 m perpendicular cross-section every
+          <b>Thalweg bed:</b> deepest DEM pixel on a 500 m perpendicular cross-section every
           250 m along the centreline (echo-sounded bathymetry, PANGAEA DEM).
-          <b>DEM along SWOT centerline:</b> DEM elevation sampled on the SWOT node centerline.
+          <b>DEM along SWOT centreline:</b> DEM elevation sampled on the SWOT node centreline.
           <b>SWOT WSE:</b> node water-surface elevations from a high-flow event
           (<span id="hiDates"></span>) and a low-flow event (<span id="loDates"></span>);
-          gaps are unobserved sections of those passes. Dashed verticals mark the four gauges
-          at their corrected chainages (0 km = Bingen).
+          the shaded band is the water column at high flow. Gaps are unobserved sections of those
+          passes. Dashed verticals mark the four gauges at their corrected chainages (0 km = Bingen).
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<div id="aboutModal">
+<div id="aboutModal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
   <div id="aboutCard">
-    <button class="closeAbout" onclick="document.getElementById('aboutModal').classList.remove('open')">Close</button>
-    <h2>About this dashboard</h2>
-    <p>This dashboard accompanies an MSc thesis on estimating <b>Rhine river discharge from the
-       SWOT satellite mission</b>. Four PegelOnline gauging stations are used as ground truth:
+    <button class="btn ghost closeAbout" onclick="document.getElementById('aboutModal').classList.remove('open')">Close</button>
+    <h2 id="aboutTitle">About this dashboard</h2>
+    <p>A digital twin of the Lower Rhine built for an MSc thesis on estimating <b>river discharge from
+       the SWOT satellite mission</b>. Four PegelOnline gauging stations are the ground truth:
        Kaub, Bonn, Duisburg-Ruhrort and Wesel.</p>
     <ul>
-      <li><b>Water level:</b> in-situ stage from WSV PegelOnline (continuous, 15-min) compared with
-          satellite altimetry water levels from <b>DAHITI</b> (DGFI-TUM).</li>
+      <li><b>Water level:</b> in-situ stage from WSV PegelOnline (15 min) against satellite altimetry
+          water levels from <b>DAHITI</b> (DGFI-TUM).</li>
       <li><b>Discharge:</b> a <b>modified Manning approach</b> (Durand et al., 2023) driven by SWOT
           water-surface elevation, width and slope, with the unobserved channel area derived from
-          echo-sounded bathymetry (PANGAEA DEM). Variants: fixed vs SWOT-observed slope, literature
-          vs calibrated roughness.</li>
-      <li><b>Live layer:</b> the most recent 30 days and the current measurement are fetched directly
-          from the PegelOnline REST API every time the page loads, so the dashboard always shows the
-          river's present state.</li>
-      <li><b>Context models:</b> GloFAS (Copernicus) and GEOGloWS reanalysis discharge can be toggled
-          in the legend of the discharge chart.</li>
+          echo-sounded bathymetry (PANGAEA DEM). Variants: fixed or SWOT-observed slope, literature or
+          calibrated roughness. Error bars come from first-order uncertainty propagation.</li>
+      <li><b>Validation:</b> SWOT discharge against same-day in-situ discharge with a 1:1 line and a
+          least-squares fit, plus n, r, RMSE, bias, NSE and KGE.</li>
+      <li><b>Live layer:</b> the most recent 30 days and the current measurement are fetched from the
+          PegelOnline REST API on every page load. Station tiles show the current stage, its percentile
+          within the 2023 to 2026 record, and the 24-hour trend.</li>
+      <li><b>Context models:</b> GloFAS (Copernicus) and GEOGloWS reanalysis discharge on the discharge chart.</li>
     </ul>
-    <p>3D scene: CesiumJS with Esri World Imagery (or Google Photorealistic 3D Tiles if an API key is
-       configured). Author: Sharvil Upadhye.</p>
+    <p>3D scene: CesiumJS with Esri World Imagery and Esri world elevation, a 2 m hillshade pyramid cut
+       from an 84 GB DEM, and the thalweg and SWOT centreline. Author: Sharvil Upadhye.
+       Source: <a href="https://github.com/Sharvil2410/Rhine-River-Monitoring" target="_blank" rel="noopener" style="color:var(--accent)">github.com/Sharvil2410/Rhine-River-Monitoring</a>.</p>
   </div>
 </div>
 
 <script>
 "use strict";
 /* ================= configuration ================= */
-// Optional: paste a Google Maps Platform key to switch the globe to
-// Google Photorealistic 3D Tiles (the "Google Earth" look).
-const GOOGLE_MAPS_API_KEY = "";
-// Optional: paste a free Cesium ion token to use Cesium World Terrain.
-// Without it the dashboard tries Esri's public world elevation service.
-const CESIUM_ION_TOKEN = "";
+const GOOGLE_MAPS_API_KEY = "";   // optional: Google Photorealistic 3D Tiles
+const CESIUM_ION_TOKEN = "";      // optional: Cesium World Terrain
 
 const DATA = window.DASHBOARD_DATA;
 const PEGEL_API = "https://www.pegelonline.wsv.de/webservices/rest-api/v2/stations";
-
-const COL = { insitu: "#1f77b4", dahiti: "#ff7f0e", live: "#16a34a",
-              swot: "#d62728", glofas: "#6b7280", geoglows: "#7c3aed" };
+const CSS = getComputedStyle(document.documentElement);
+const tok = n => CSS.getPropertyValue(n).trim();
+const COL = { insitu: tok("--insitu"), dahiti: tok("--dahiti"), live: tok("--live"),
+              swot: tok("--swot"), glofas: tok("--glofas"), geoglows: tok("--geoglows"),
+              accent: tok("--accent"), text: tok("--text"), muted: tok("--muted"),
+              faint: tok("--faint"), low: tok("--low"), normal: tok("--normal"),
+              high: tok("--high"), unknown: tok("--unknown") };
+const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const $ = id => document.getElementById(id);
 
 /* ================= Cesium scene ================= */
 Cesium.Ion.defaultAccessToken = undefined;
@@ -330,6 +478,10 @@ const viewer = new Cesium.Viewer("map", {
   requestRenderMode: true, maximumRenderTimeChange: Infinity,
 });
 viewer.scene.globe.depthTestAgainstTerrain = false;
+viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#0a1020");
+viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#05080f");
+viewer.scene.skyAtmosphere.brightnessShift = -0.15;
+viewer.camera.percentageChanged = 0.05;
 
 async function tryGoogle3D() {
   if (!GOOGLE_MAPS_API_KEY) return;
@@ -343,10 +495,8 @@ async function tryGoogle3D() {
 }
 tryGoogle3D();
 
-/* 3D terrain: Cesium World Terrain when an ion token is configured,
-   otherwise Esri's public world elevation service; ellipsoid fallback. */
 async function initTerrain() {
-  if (GOOGLE_MAPS_API_KEY) return;                 // Google tiles carry their own 3D
+  if (GOOGLE_MAPS_API_KEY) return;
   try {
     if (CESIUM_ION_TOKEN) {
       Cesium.Ion.defaultAccessToken = CESIUM_ION_TOKEN;
@@ -356,7 +506,7 @@ async function initTerrain() {
         "https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer");
     }
     viewer.scene.requestRender();
-  } catch (e) { console.warn("3D terrain unavailable — flat ellipsoid kept:", e); }
+  } catch (e) { console.warn("3D terrain unavailable, flat ellipsoid kept:", e); }
 }
 initTerrain();
 
@@ -369,82 +519,84 @@ viewer.homeButton.viewModel.command.beforeExecute.addEventListener(e => {
   e.cancel = true; viewer.camera.flyTo({ ...HOME, duration: 2.5 });
 });
 
+/* ---- station markers: colour encodes current stage percentile ---- */
+const markerEnts = {};
 for (const st of DATA.stations) {
-  viewer.entities.add({
-    id: st.key,
+  const halo = viewer.entities.add({
     position: Cesium.Cartesian3.fromDegrees(st.lon, st.lat, 0),
-    point: { pixelSize: 13, color: Cesium.Color.fromCssColorString("#38bdf8"),
-             outlineColor: Cesium.Color.WHITE, outlineWidth: 3,
+    point: { pixelSize: 30, color: Cesium.Color.fromCssColorString(COL.unknown).withAlpha(0.22),
              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
              disableDepthTestDistance: Number.POSITIVE_INFINITY },
-    label: { text: st.name, font: "600 14px 'Segoe UI', sans-serif",
-             fillColor: Cesium.Color.WHITE,
-             showBackground: true, backgroundColor: new Cesium.Color(0.06, 0.09, 0.15, 0.8),
+  });
+  const core = viewer.entities.add({
+    id: st.key,
+    position: Cesium.Cartesian3.fromDegrees(st.lon, st.lat, 0),
+    point: { pixelSize: 12, color: Cesium.Color.fromCssColorString(COL.unknown),
+             outlineColor: Cesium.Color.fromCssColorString("#e8eef8"), outlineWidth: 2,
+             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+             disableDepthTestDistance: Number.POSITIVE_INFINITY },
+    label: { text: st.name, font: "600 13px 'IBM Plex Sans', sans-serif",
+             fillColor: Cesium.Color.fromCssColorString("#e8eef8"),
+             showBackground: true, backgroundColor: new Cesium.Color(0.05, 0.08, 0.14, 0.85),
              backgroundPadding: new Cesium.Cartesian2(8, 5),
              pixelOffset: new Cesium.Cartesian2(0, -24),
              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
              disableDepthTestDistance: Number.POSITIVE_INFINITY },
   });
+  markerEnts[st.key] = { halo, core };
+}
+function paintMarker(key, cls) {
+  const m = markerEnts[key]; if (!m) return;
+  const c = Cesium.Color.fromCssColorString(COL[cls] || COL.unknown);
+  m.core.point.color = c; m.halo.point.color = c.withAlpha(0.22);
+  viewer.scene.requestRender();
 }
 
-/* major cities along the reach (context labels, not clickable) */
+/* ---- context: cities, borders, country names ---- */
 const CITIES = [
-  ["Bingen", 7.898, 49.967], ["Mainz", 8.272, 50.000],
-  ["Koblenz", 7.589, 50.357], ["Andernach", 7.403, 50.439],
-  ["Köln", 6.960, 50.938], ["Düsseldorf", 6.774, 51.228],
+  ["Bingen", 7.898, 49.967], ["Mainz", 8.272, 50.000], ["Koblenz", 7.589, 50.357],
+  ["Andernach", 7.403, 50.439], ["Köln", 6.960, 50.938], ["Düsseldorf", 6.774, 51.228],
   ["Krefeld", 6.564, 51.333],
 ];
 const cityEnts = CITIES.map(([name, lon, lat]) => viewer.entities.add({
   position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
-  point: { pixelSize: 6, color: Cesium.Color.fromCssColorString("#fbbf24"),
-           outlineColor: Cesium.Color.fromCssColorString("#1f2937"), outlineWidth: 1,
+  point: { pixelSize: 5, color: Cesium.Color.fromCssColorString("#e2b04a"),
+           outlineColor: Cesium.Color.fromCssColorString("#0a1020"), outlineWidth: 1,
            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
            disableDepthTestDistance: Number.POSITIVE_INFINITY },
-  label: { text: name, font: "500 12.5px 'Segoe UI', sans-serif",
-           fillColor: Cesium.Color.WHITE,
-           outlineColor: Cesium.Color.fromCssColorString("#0f172a"), outlineWidth: 3,
+  label: { text: name, font: "500 12px 'IBM Plex Sans', sans-serif",
+           fillColor: Cesium.Color.fromCssColorString("#e8eef8").withAlpha(0.9),
+           outlineColor: Cesium.Color.fromCssColorString("#0a1020"), outlineWidth: 3,
            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
            pixelOffset: new Cesium.Cartesian2(8, 0),
-           horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
-           verticalOrigin: Cesium.VerticalOrigin.CENTER,
+           horizontalOrigin: Cesium.HorizontalOrigin.LEFT, verticalOrigin: Cesium.VerticalOrigin.CENTER,
            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-           scaleByDistance: new Cesium.NearFarScalar(2.0e4, 1.05, 8.0e5, 0.55) },
+           scaleByDistance: new Cesium.NearFarScalar(2.0e4, 1.0, 8.0e5, 0.55) },
 }));
-
-/* country borders from build_borders.py, draped on the terrain */
 let borderDS = null, bordersOn = true;
 Cesium.GeoJsonDataSource.load("data/borders.geojson", {
-  stroke: Cesium.Color.fromCssColorString("#facc15").withAlpha(0.85),
-  fill: Cesium.Color.TRANSPARENT, strokeWidth: 2, clampToGround: true,
-}).then(ds => {
-  borderDS = ds; ds.show = bordersOn;
-  viewer.dataSources.add(ds);
-  viewer.scene.requestRender();
-}).catch(e => console.warn("borders unavailable:", e));
-
-/* neighbouring country name labels (toggled together with the Borders chip);
-   fade out when zoomed close so they don't clutter the river view */
+  stroke: Cesium.Color.fromCssColorString("#e2e8f0").withAlpha(0.45),
+  fill: Cesium.Color.TRANSPARENT, strokeWidth: 1.5, clampToGround: true,
+}).then(ds => { borderDS = ds; ds.show = bordersOn; viewer.dataSources.add(ds); viewer.scene.requestRender(); })
+  .catch(e => console.warn("borders unavailable:", e));
 const COUNTRIES = [["GERMANY", 7.70, 50.95], ["NETHERLANDS", 5.85, 51.92]];
 const countryEnts = COUNTRIES.map(([name, lon, lat]) => viewer.entities.add({
   position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
-  label: { text: name, font: "700 24px 'Segoe UI', sans-serif",
-           fillColor: Cesium.Color.WHITE.withAlpha(0.85),
-           outlineColor: Cesium.Color.fromCssColorString("#0f172a"), outlineWidth: 4,
+  label: { text: name, font: "600 17px 'IBM Plex Sans', sans-serif",
+           fillColor: Cesium.Color.fromCssColorString("#e8eef8").withAlpha(0.55),
+           outlineColor: Cesium.Color.fromCssColorString("#0a1020"), outlineWidth: 3,
            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-           scaleByDistance: new Cesium.NearFarScalar(2.0e4, 0.7, 1.5e6, 1.4),
+           scaleByDistance: new Cesium.NearFarScalar(2.0e4, 0.7, 1.5e6, 1.3),
            translucencyByDistance: new Cesium.NearFarScalar(1.5e6, 1.0, 3.0e6, 0.0) },
 }));
 
-/* thalweg + SWOT centerline draped on the imagery */
+/* ---- river ribbon: thalweg with glow, SWOT centreline when zoomed in ---- */
 const PROF = DATA.profile;
-/* Lines follow the river's 3D descent using the SWOT water-surface profile
-   (km -> WSE) instead of ground clamping — clamped 320-km polylines render
-   via shadow volumes and hang this GPU against real terrain. */
-const WSE_PROFILE = PROF.swot_high.pts;          // [[km, wse_m, date], ...] sorted by km
+const WSE_PROFILE = PROF.swot_high.pts;
 function wseAtKm(km) {
   const a = WSE_PROFILE;
   if (km <= a[0][0]) return a[0][1];
@@ -463,22 +615,30 @@ function nearestKm(lon, lat) {
   }
   return km;
 }
-const LINE_LIFT = 10;                            // metres above the water surface
-function addReachLine(coords, css, width, kmOf) {
+const LINE_LIFT = 10;
+function reachPositions(coords, kmOf) {
   const flat = [];
   for (const p of coords) flat.push(p[0], p[1], wseAtKm(kmOf(p)) + LINE_LIFT);
-  return viewer.entities.add({ polyline: {
-    positions: Cesium.Cartesian3.fromDegreesArrayHeights(flat),
-    width, material: Cesium.Color.fromCssColorString(css).withAlpha(0.92),
-  }});
+  return Cesium.Cartesian3.fromDegreesArrayHeights(flat);
 }
-const thalwegEnt = addReachLine(PROF.thalweg_geom, "#3b82f6", 3, p => p[2]);
-const centerEnts = PROF.centerline_parts.map(part =>
-  addReachLine(part, "#ef4444", 3, p => nearestKm(p[0], p[1])));
+const thalwegPos = reachPositions(PROF.thalweg_geom, p => p[2]);
+const thalwegGlow = viewer.entities.add({ polyline: { positions: thalwegPos, width: 9,
+  material: Cesium.Color.fromCssColorString(COL.accent).withAlpha(0.18) } });
+const thalwegCore = viewer.entities.add({ polyline: { positions: thalwegPos, width: 2.5,
+  material: Cesium.Color.fromCssColorString(COL.accent).withAlpha(0.95) } });
+const centerEnts = PROF.centerline_parts.map(part => viewer.entities.add({ polyline: {
+  positions: reachPositions(part, p => nearestKm(p[0], p[1])), width: 2,
+  material: Cesium.Color.fromCssColorString(COL.swot).withAlpha(0.9) } }));
+let centerlineWanted = true;
+function cameraHeight() {
+  const c = viewer.camera.positionCartographic; return c ? c.height : 1e7;
+}
+function applyCenterline() {
+  const show = centerlineWanted && cameraHeight() < 60000;
+  centerEnts.forEach(e => { e.show = show; });
+}
 
-/* PANGAEA DEM drape (built by build_dem_layers.py — absent until first build).
-   Two renderings per layer: grayscale hillshade and color relief; an intensity
-   slider drives the imagery-layer alpha so the drape blends with the basemap. */
+/* ---- DEM drape ---- */
 const DEM = window.DEM_LAYERS;
 const demLayers = { hillshade: [], color: [] };
 let demOn = true, demMode = "hillshade", demAlpha = 0.8;
@@ -486,224 +646,139 @@ function applyDem() {
   for (const m of Object.keys(demLayers)) {
     demLayers[m].forEach(l => { l.show = demOn && m === demMode; l.alpha = demAlpha; });
   }
-  document.getElementById("demLegend").style.display = DEM && demOn ? "block" : "none";
-  document.getElementById("demRamp").style.display = demMode === "color" ? "block" : "none";
+  $("demCard").style.display = DEM && demOn ? "block" : "none";
+  $("demRamp").style.display = demMode === "color" ? "block" : "none";
   viewer.scene.requestRender();
 }
 async function addDemLayers() {
   if (!DEM) return;
   document.querySelector("#demRamp .bar").style.background =
     `linear-gradient(90deg, ${DEM.stops.map(s => s[1]).join(",")})`;
-  document.getElementById("demVmin").textContent = `≤ ${DEM.vmin}`;
-  document.getElementById("demVmax").textContent = `≥ ${DEM.vmax}`;
-  // whole-reach tile pyramids (build_dem_tiles.py / build_dem_color_tiles.py)
+  $("demVmin").textContent = `${DEM.vmin} or less`;
+  $("demVmax").textContent = `${DEM.vmax} or more`;
   const TILE_KEYS = { hillshade: "tiles", color: "tiles_color" };
   for (const m of Object.keys(demLayers)) {
     const t = DEM[TILE_KEYS[m]];
     if (!t) continue;
     const prov = new Cesium.UrlTemplateImageryProvider({
       url: t.url, minimumLevel: t.minZoom, maximumLevel: t.maxZoom,
-      rectangle: Cesium.Rectangle.fromDegrees(...t.bounds),
-      credit: new Cesium.Credit("PANGAEA.919308"),
+      rectangle: Cesium.Rectangle.fromDegrees(...t.bounds), credit: new Cesium.Credit("PANGAEA.919308"),
     });
-    // tiles outside the data corridor are deliberately absent — silence 404s
     prov.errorEvent.addEventListener(() => {});
     const layer = viewer.imageryLayers.addImageryProvider(prov);
-    layer.show = false;
-    demLayers[m].push(layer);
+    layer.show = false; demLayers[m].push(layer);
   }
   for (const d of DEM.layers) {
     for (const m of Object.keys(demLayers)) {
-      if (!d[m]) continue;
-      if (DEM[TILE_KEYS[m]]) continue;                 // pyramid replaces singles
+      if (!d[m] || DEM[TILE_KEYS[m]]) continue;
       try {
         const provider = await Cesium.SingleTileImageryProvider.fromUrl(d[m], {
           rectangle: Cesium.Rectangle.fromDegrees(...d.bounds) });
         const layer = viewer.imageryLayers.addImageryProvider(provider);
-        layer.show = false;
-        demLayers[m].push(layer);
+        layer.show = false; demLayers[m].push(layer);
       } catch (e) { console.warn("DEM layer failed:", d[m], e); }
     }
   }
   applyDem();
 }
 addDemLayers();
-document.querySelectorAll("input[name=demMode]").forEach(r => r.onchange = () => {
-  demMode = r.value; applyDem();
-});
-const demSlider = document.getElementById("demAlphaSlider");
-demSlider.oninput = () => {
-  demAlpha = demSlider.value / 100;
-  document.getElementById("demAlphaVal").textContent = `${demSlider.value}%`;
+document.querySelectorAll("#demModeSeg button").forEach(b => b.onclick = () => {
+  demMode = b.dataset.mode;
+  document.querySelectorAll("#demModeSeg button").forEach(x => x.classList.toggle("active", x === b));
   applyDem();
+});
+$("demAlphaSlider").oninput = e => {
+  demAlpha = e.target.value / 100; $("demAlphaVal").textContent = `${e.target.value}%`; applyDem();
 };
 
+/* ---- picking ---- */
 const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+const stationIdOf = picked => picked && picked.id && DATA.stations.some(s => s.key === picked.id.id) ? picked.id.id : null;
 handler.setInputAction(m => {
-  const picked = viewer.scene.pick(m.position);
-  const id = picked && picked.id && picked.id.id;
-  if (id && DATA.stations.some(s => s.key === id)) selectStation(id);
+  const id = stationIdOf(viewer.scene.pick(m.position)); if (id) selectStation(id);
 }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 handler.setInputAction(m => {
-  const picked = viewer.scene.pick(m.endPosition);
-  viewer.scene.canvas.style.cursor =
-    picked && picked.id && DATA.stations.some(s => s.key === picked.id.id) ? "pointer" : "default";
+  viewer.scene.canvas.style.cursor = stationIdOf(viewer.scene.pick(m.endPosition)) ? "pointer" : "default";
 }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
-/* north arrow: rotate so it always points to true north; click to face north */
+/* ---- compass and scale bar ---- */
 const compassSvg = document.querySelector("#compass svg");
 viewer.scene.postRender.addEventListener(() => {
   compassSvg.style.transform = `rotate(${-Cesium.Math.toDegrees(viewer.camera.heading)}deg)`;
 });
-document.getElementById("compass").onclick = () => {
-  viewer.camera.flyTo({
-    destination: viewer.camera.positionWC.clone(),
-    orientation: { heading: 0, pitch: viewer.camera.pitch, roll: 0 },
-    duration: 0.5,
-  });
-};
+function faceNorth() {
+  viewer.camera.flyTo({ destination: viewer.camera.positionWC.clone(),
+    orientation: { heading: 0, pitch: viewer.camera.pitch, roll: 0 }, duration: 0.5 });
+}
+$("compass").onclick = faceNorth;
+$("compass").onkeydown = e => { if (e.key === "Enter" || e.key === " ") faceNorth(); };
 
-/* ================= UI state ================= */
-let current = null;            // selected station record
-let activeTab = "wl";
-const live = {};               // per-station live PegelOnline cache
+const NICE = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000];
+function updateScaleBar() {
+  const c = viewer.scene.canvas, w = c.clientWidth, h = c.clientHeight;
+  const ell = viewer.scene.globe.ellipsoid;
+  const a = viewer.camera.pickEllipsoid(new Cesium.Cartesian2(w / 2, h * 0.8), ell);
+  const b = viewer.camera.pickEllipsoid(new Cesium.Cartesian2(w / 2 + 100, h * 0.8), ell);
+  const el = $("scaleBar");
+  if (!a || !b) { el.style.display = "none"; return; }
+  const g = new Cesium.EllipsoidGeodesic(Cesium.Cartographic.fromCartesian(a), Cesium.Cartographic.fromCartesian(b));
+  const mPerPx = g.surfaceDistance / 100;
+  if (!isFinite(mPerPx) || mPerPx <= 0) { el.style.display = "none"; return; }
+  let nice = NICE[0];
+  for (const n of NICE) if (n / mPerPx <= 160) nice = n;
+  el.style.display = "block";
+  el.querySelector(".bar").style.width = `${Math.round(nice / mPerPx)}px`;
+  $("scaleLabel").textContent = nice >= 1000 ? `${nice / 1000} km` : `${nice} m`;
+}
+viewer.camera.changed.addEventListener(() => { updateScaleBar(); applyCenterline(); });
+viewer.camera.moveEnd.addEventListener(() => { updateScaleBar(); applyCenterline(); viewer.scene.requestRender(); });
 
-const chipsEl = document.getElementById("stationChips");
+/* ================= header: station tiles, views, layers ================= */
+let current = null, activeTab = "wl";
+const live = {};              // per-station 30-day cache (loaded on selection)
+const status = {};            // per-station current stage, percentile, trend
+
+const rowEl = $("stationRow");
 for (const st of DATA.stations) {
   const b = document.createElement("button");
-  b.className = "chip"; b.textContent = st.name; b.dataset.key = st.key;
+  b.className = "stTile"; b.dataset.key = st.key;
+  b.innerHTML = `<div class="n">${st.name}</div><div class="v"><span class="val">…</span> <small>m</small></div>
+    <div class="s"><span class="dot"></span><span class="lbl">loading</span><span class="trend"></span></div>`;
   b.onclick = () => selectStation(st.key);
-  chipsEl.appendChild(b);
+  rowEl.appendChild(b);
 }
-const profChip = document.createElement("button");
-profChip.className = "chip"; profChip.dataset.key = "__profile";
-profChip.textContent = "📈 Long profile";
-profChip.onclick = openProfile;
-chipsEl.appendChild(profChip);
+$("profileBtn").onclick = openProfile;
+$("aboutBtn").onclick = () => $("aboutModal").classList.add("open");
+$("aboutModal").addEventListener("click", e => { if (e.target.id === "aboutModal") e.target.classList.remove("open"); });
 
-function addLineToggle(label, css, ents) {
-  const b = document.createElement("button");
-  b.className = "chip";
-  b.innerHTML = `<span class="dot" style="background:${css}"></span>${label}`;
-  b.title = "Show / hide on the map";
-  b.onclick = () => {
-    const show = !ents[0].show;
-    ents.forEach(en => { en.show = show; });
-    b.classList.toggle("off", !show);
-    viewer.scene.requestRender();
-  };
-  chipsEl.appendChild(b);
+const layerRow = $("layerRow");
+function addSwitch(label, swatch, checked, onchange) {
+  const l = document.createElement("label"); l.className = "sw";
+  l.innerHTML = `<input type="checkbox" ${checked ? "checked" : ""}><span class="track"></span>` +
+    `<span class="swatch" style="background:${swatch}"></span>${label}`;
+  l.querySelector("input").onchange = e => { onchange(e.target.checked); viewer.scene.requestRender(); };
+  layerRow.appendChild(l);
 }
-addLineToggle("Thalweg", "#3b82f6", [thalwegEnt]);
-addLineToggle("SWOT centreline", "#ef4444", centerEnts);
+addSwitch("Thalweg", COL.accent, true, on => { thalwegGlow.show = on; thalwegCore.show = on; });
+addSwitch("SWOT centreline", COL.swot, true, on => { centerlineWanted = on; applyCenterline(); });
+if (DEM) addSwitch("DEM relief", `linear-gradient(90deg,${DEM.stops.map(s => s[1]).join(",")})`, true,
+  on => { demOn = on; applyDem(); });
+addSwitch("Cities", "#e2b04a", true, on => cityEnts.forEach(e => { e.show = on; }));
+addSwitch("Borders", "#e2e8f0", true, on => {
+  bordersOn = on; if (borderDS) borderDS.show = on; countryEnts.forEach(e => { e.show = on; });
+});
 
-if (DEM) {
-  const b = document.createElement("button");
-  b.className = "chip";
-  b.innerHTML = `<span class="dot" style="background:linear-gradient(90deg,` +
-    `${DEM.stops.map(s => s[1]).join(",")})"></span>DEM (PANGAEA)`;
-  b.title = "Show / hide the elevation drape";
-  b.onclick = () => { demOn = !demOn; b.classList.toggle("off", !demOn); applyDem(); };
-  chipsEl.appendChild(b);
-}
-
-addLineToggle("Cities", "#fbbf24", cityEnts);
-
-const borderChip = document.createElement("button");
-borderChip.className = "chip";
-borderChip.innerHTML = `<span class="dot" style="background:#facc15"></span>Borders`;
-borderChip.title = "Show / hide country borders and names";
-borderChip.onclick = () => {
-  bordersOn = !bordersOn;
-  if (borderDS) borderDS.show = bordersOn;
-  countryEnts.forEach(e => { e.show = bordersOn; });
-  borderChip.classList.toggle("off", !bordersOn);
-  viewer.scene.requestRender();
-};
-chipsEl.appendChild(borderChip);
-
-const aboutBtn = document.createElement("button");
-aboutBtn.className = "chip"; aboutBtn.id = "aboutBtn"; aboutBtn.textContent = "ⓘ About";
-aboutBtn.onclick = () => document.getElementById("aboutModal").classList.add("open");
-chipsEl.appendChild(aboutBtn);
-
-/* collapsible header panel */
-const headerEl = document.getElementById("header");
-const headerToggle = document.getElementById("headerToggle");
+const headerEl = $("header"), headerToggle = $("headerToggle");
 function setHeaderCollapsed(c) {
   headerEl.classList.toggle("collapsed", c);
-  headerToggle.textContent = c ? "☰" : "▾";
+  headerToggle.innerHTML = `<svg class="ic"><use href="#${c ? "i-menu" : "i-chev"}"/></svg>`;
   headerToggle.title = c ? "Show panel" : "Hide panel";
-  localStorage.setItem("headerCollapsed", c ? "1" : "0");
+  try { localStorage.setItem("headerCollapsed", c ? "1" : "0"); } catch (e) {}
 }
 headerToggle.onclick = () => setHeaderCollapsed(!headerEl.classList.contains("collapsed"));
-setHeaderCollapsed(localStorage.getItem("headerCollapsed") === "1");
-
-document.getElementById("closeBtn").onclick = () => {
-  document.getElementById("panel").classList.remove("open");
-  document.body.classList.remove("panelOpen");
-  document.querySelectorAll(".chip[data-key]").forEach(c => c.classList.remove("active"));
-  current = null;
-};
-document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
-  activeTab = t.dataset.tab;
-  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
-  document.getElementById("wlView").style.display = activeTab === "wl" ? "" : "none";
-  document.getElementById("qView").style.display = activeTab === "q" ? "" : "none";
-  renderCharts();
-});
-document.querySelectorAll("input[name=wlMode],input[name=qSlope],input[name=qCal]")
-  .forEach(r => r.onchange = renderCharts);
-
-/* ---- resizable panel: drag the left-edge handle, dbl-click to reset ---- */
-const panelEl = document.getElementById("panel");
-const resizerEl = document.getElementById("panelResizer");
-const PANEL_W_DEFAULT = 560;
-const savedPanelW = parseInt(localStorage.getItem("panelW"), 10);
-if (savedPanelW >= 380 && savedPanelW <= window.innerWidth * 0.92) {
-  panelEl.style.width = `${savedPanelW}px`;
-}
-let plotResizeQueued = false;
-function resizeVisiblePlots() {
-  for (const id of ["wlPlot", "qPlot", "profPlot"]) {
-    const el = document.getElementById(id);
-    if (el && el.offsetParent !== null && el.classList.contains("js-plotly-plot")) {
-      Plotly.Plots.resize(el);
-    }
-  }
-}
-resizerEl.addEventListener("pointerdown", e => {
-  e.preventDefault();
-  resizerEl.setPointerCapture(e.pointerId);
-  resizerEl.classList.add("dragging");
-  panelEl.style.transition = "none";
-  document.body.style.userSelect = "none";
-  const onMove = ev => {
-    const w = Math.min(Math.max(window.innerWidth - ev.clientX, 380),
-                       Math.round(window.innerWidth * 0.92));
-    panelEl.style.width = `${w}px`;
-    if (!plotResizeQueued) {
-      plotResizeQueued = true;
-      requestAnimationFrame(() => { plotResizeQueued = false; resizeVisiblePlots(); });
-    }
-  };
-  const onUp = () => {
-    resizerEl.removeEventListener("pointermove", onMove);
-    resizerEl.removeEventListener("pointerup", onUp);
-    resizerEl.classList.remove("dragging");
-    panelEl.style.transition = "";
-    document.body.style.userSelect = "";
-    localStorage.setItem("panelW", parseInt(panelEl.style.width, 10) || PANEL_W_DEFAULT);
-    resizeVisiblePlots();
-  };
-  resizerEl.addEventListener("pointermove", onMove);
-  resizerEl.addEventListener("pointerup", onUp);
-});
-resizerEl.addEventListener("dblclick", () => {
-  panelEl.style.width = `${PANEL_W_DEFAULT}px`;
-  localStorage.setItem("panelW", PANEL_W_DEFAULT);
-  resizeVisiblePlots();
-});
+let collapsedPref = "0";
+try { collapsedPref = localStorage.getItem("headerCollapsed") || "0"; } catch (e) {}
+setHeaderCollapsed(collapsedPref === "1");
 
 /* ================= live PegelOnline ================= */
 async function fetchJson(url) {
@@ -712,11 +787,10 @@ async function fetchJson(url) {
   return r.json();
 }
 function hourly(measurements, scale) {
-  // 15-min API records -> hourly means [[iso, value], ...]
   const buckets = new Map();
   for (const m of measurements) {
     if (m.value == null) continue;
-    const key = m.timestamp.slice(0, 13);                  // YYYY-MM-DDTHH
+    const key = m.timestamp.slice(0, 13);
     const b = buckets.get(key) || { s: 0, n: 0, t: m.timestamp };
     b.s += m.value * scale; b.n += 1; buckets.set(key, b);
   }
@@ -728,340 +802,532 @@ async function loadLive(st) {
   const base = `${PEGEL_API}/${st.pegelonline_uuid}`;
   try {
     const [wSeries, wNow] = await Promise.all([
-      fetchJson(`${base}/W/measurements.json?start=P30D`),
-      fetchJson(`${base}/W/currentmeasurement.json`),
-    ]);
-    out.w = hourly(wSeries, 0.01);                          // cm -> m
-    out.wNow = { v: wNow.value / 100, t: wNow.timestamp };
+      fetchJson(`${base}/W/measurements.json?start=P30D`), fetchJson(`${base}/W/currentmeasurement.json`)]);
+    out.w = hourly(wSeries, 0.01); out.wNow = { v: wNow.value / 100, t: wNow.timestamp };
   } catch (e) { out.failed = true; console.warn("live W failed", st.key, e); }
   try {
     const [qSeries, qNow] = await Promise.all([
-      fetchJson(`${base}/Q/measurements.json?start=P30D`),
-      fetchJson(`${base}/Q/currentmeasurement.json`),
-    ]);
-    out.q = hourly(qSeries, 1);
-    out.qNow = { v: qNow.value, t: qNow.timestamp };
+      fetchJson(`${base}/Q/measurements.json?start=P30D`), fetchJson(`${base}/Q/currentmeasurement.json`)]);
+    out.q = hourly(qSeries, 1); out.qNow = { v: qNow.value, t: qNow.timestamp };
   } catch (e) { console.warn("live Q unavailable", st.key, e); }
   live[st.key] = out;
   return out;
 }
 function fmtTime(iso) {
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, { day: "2-digit", month: "short",
-                                       hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
+function percentile(st, v) {
+  const vals = st.insitu_wl_daily; if (!vals.length) return null;
+  let below = 0, equal = 0;
+  for (const p of vals) { if (p[1] < v - 0.005) below++; else if (Math.abs(p[1] - v) <= 0.005) equal++; }
+  const p = Math.round(100 * (below + 0.5 * equal) / vals.length);
+  return Math.min(99, Math.max(1, p));
+}
+function classify(p) { return p == null ? "unknown" : p < 20 ? "low" : p > 80 ? "high" : "normal"; }
+const STATUS_TEXT = { low: "low water", normal: "normal range", high: "high water", unknown: "no live data" };
 
-/* ================= station selection ================= */
+/* startup: current stage and 48-hour trend for every station (small requests) */
+async function loadStatus(st) {
+  const base = `${PEGEL_API}/${st.pegelonline_uuid}/W`;
+  try {
+    const [now, recent] = await Promise.all([
+      fetchJson(`${base}/currentmeasurement.json`), fetchJson(`${base}/measurements.json?start=P2D`)]);
+    const v = now.value / 100, t = now.timestamp;
+    const tNow = new Date(t).getTime();
+    let ref = null;
+    for (const m of recent) { if (m.value == null) continue;
+      const dt = tNow - new Date(m.timestamp).getTime();
+      if (dt >= 23.5 * 3600e3 && (ref == null || dt < ref.dt)) ref = { v: m.value / 100, dt }; }
+    const delta = ref ? v - ref.v : null;
+    const p = percentile(st, v);
+    status[st.key] = { v, t, delta, p, cls: classify(p) };
+  } catch (e) { status[st.key] = { v: null, t: null, delta: null, p: null, cls: "unknown" }; }
+  paintTile(st.key); paintMarker(st.key, status[st.key].cls);
+}
+function trendHtml(delta, long) {
+  if (delta == null) return "";
+  const cm = Math.round(delta * 100), suffix = long ? " in 24 h" : "";
+  if (Math.abs(cm) < 2) return `<span class="trend" title="change over 24 hours">&#9654; steady${suffix}</span>`;
+  return `<span class="trend ${cm > 0 ? "up" : "down"}" title="change over 24 hours">${cm > 0 ? "&#9650;" : "&#9660;"} ${Math.abs(cm)} cm${suffix}</span>`;
+}
+function paintTile(key) {
+  const s = status[key], b = rowEl.querySelector(`.stTile[data-key="${key}"]`);
+  if (!s || !b) return;
+  b.querySelector(".val").textContent = s.v == null ? "n/a" : s.v.toFixed(2);
+  b.querySelector(".dot").className = `dot ${s.cls}`;
+  b.querySelector(".lbl").textContent = s.p == null ? STATUS_TEXT.unknown : `p${s.p}`;
+  b.querySelector(".trend").outerHTML = trendHtml(s.delta) || `<span class="trend"></span>`;
+  b.title = `${STATUS_TEXT[s.cls]}${s.t ? ", " + fmtTime(s.t) : ""}`;
+}
+Promise.allSettled(DATA.stations.map(loadStatus)).then(() => { loaderState.live = true; maybeHideLoader(); });
+
+/* ================= station selection and panel ================= */
 async function selectStation(key) {
   current = DATA.stations.find(s => s.key === key);
-  document.querySelectorAll(".chip").forEach(c =>
-    c.classList.toggle("active", c.dataset.key === key));
-
+  document.querySelectorAll(".stTile").forEach(c => c.classList.toggle("active", c.dataset.key === key));
+  $("profileBtn").classList.remove("active");
   viewer.camera.flyTo({
     destination: Cesium.Cartesian3.fromDegrees(current.lon, current.lat - 0.052, 5200),
-    orientation: { heading: 0, pitch: Cesium.Math.toRadians(-42), roll: 0 },
-    duration: 2.2,
+    orientation: { heading: 0, pitch: Cesium.Math.toRadians(-42), roll: 0 }, duration: 2.2,
   });
-
-  document.getElementById("stName").textContent = current.name;
-  document.getElementById("stMeta").textContent =
-    `Rhine km ${current.rhine_km} · ${current.lat.toFixed(4)}°N ${current.lon.toFixed(4)}°E`;
-  document.getElementById("panel").classList.add("open");
-  document.body.classList.add("panelOpen");
+  $("stName").textContent = current.name;
+  $("stMeta").textContent = `Rhine km ${current.rhine_km} · ${current.lat.toFixed(4)}°N ${current.lon.toFixed(4)}°E`;
+  $("panel").classList.add("open"); document.body.classList.add("panelOpen");
   setPanelMode("station");
-
-  renderLiveChips(null);          // placeholders while fetching
-  renderCharts();
+  renderNow(null); renderCharts();
   const lv = await loadLive(current);
-  if (current.key === key) { renderLiveChips(lv); renderCharts(); }
+  if (current && current.key === key) { renderNow(lv); renderCharts(); }
 }
 
-function renderLiveChips(lv) {
-  const el = document.getElementById("liveChips");
-  if (!lv) { el.innerHTML = `<span class="liveChip stale">⏳ contacting PegelOnline…</span>`; return; }
-  const parts = [];
-  if (lv.wNow) parts.push(`<span class="liveChip">💧 Stage now <b>${lv.wNow.v.toFixed(2)} m</b> · ${fmtTime(lv.wNow.t)}</span>`);
-  if (lv.qNow) parts.push(`<span class="liveChip">🌊 Discharge now <b>${Math.round(lv.qNow.v)} m³/s</b> · ${fmtTime(lv.qNow.t)}</span>`);
-  if (!lv.wNow && !lv.qNow) parts.push(`<span class="liveChip stale">live feed unavailable (open via local server / check connection)</span>`);
-  const dh = current.dahiti_wl;
-  if (dh.length) {
-    const last = dh[dh.length - 1];
-    parts.push(`<span class="liveChip dahiti">🛰️ DAHITI last <b>${last[1].toFixed(2)} m</b> · ${last[0].slice(0, 10)}</span>`);
+function renderNow(lv) {
+  const st = current, s = status[st.key] || {};
+  const strip = $("nowStrip"), line = $("statusLine");
+  const tile = (cls, icon, k, v, unit, t) =>
+    `<div class="now ${cls}"><div class="k"><svg class="ic"><use href="#${icon}"/></svg>${k}</div>
+     <div class="v">${v} <small>${unit}</small></div><div class="t">${t}</div></div>`;
+  if (!lv) {
+    strip.innerHTML = tile("stage", "i-drop", "Stage now", s.v != null ? s.v.toFixed(2) : "…", "m", s.t ? fmtTime(s.t) : "contacting PegelOnline")
+      + tile("q stale", "i-wave", "Discharge now", "…", "m³/s", "loading 30 days")
+      + dahitiTile(st);
+  } else {
+    strip.innerHTML = tile(lv.wNow ? "stage" : "stage stale", "i-drop", "Stage now",
+        lv.wNow ? lv.wNow.v.toFixed(2) : "n/a", "m", lv.wNow ? fmtTime(lv.wNow.t) : "live feed unavailable")
+      + tile(lv.qNow ? "q" : "q stale", "i-wave", "Discharge now",
+        lv.qNow ? Math.round(lv.qNow.v).toLocaleString() : "n/a", "m³/s", lv.qNow ? fmtTime(lv.qNow.t) : "not published")
+      + dahitiTile(st);
   }
-  el.innerHTML = parts.join("");
+  line.innerHTML = s.p == null ? `<span class="dot unknown"></span>Percentile unavailable until the live feed answers`
+    : `<span class="dot ${s.cls}"></span>${STATUS_TEXT[s.cls]}: today's stage sits at the
+       <b class="mono" style="color:var(--text)">p${s.p}</b> of all daily means since Sept 2023 ${trendHtml(s.delta, true)}`;
+}
+function dahitiTile(st) {
+  const dh = st.dahiti_wl;
+  if (!dh.length) return `<div class="now dahiti stale"><div class="k"><svg class="ic"><use href="#i-sat"/></svg>DAHITI</div><div class="v">n/a</div><div class="t">no altimetry</div></div>`;
+  const last = dh[dh.length - 1];
+  return `<div class="now dahiti"><div class="k"><svg class="ic"><use href="#i-sat"/></svg>DAHITI last</div>
+    <div class="v">${last[1].toFixed(2)} <small>m</small></div><div class="t">${last[0].slice(0, 10)}</div></div>`;
 }
 
-/* ================= panel modes & longitudinal profile ================= */
+$("closeBtn").onclick = () => {
+  $("panel").classList.remove("open"); document.body.classList.remove("panelOpen");
+  document.querySelectorAll(".stTile").forEach(c => c.classList.remove("active"));
+  $("profileBtn").classList.remove("active");
+  current = null;
+};
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  activeTab = t.dataset.tab;
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
+  showView(); renderCharts();
+});
+function showView() {
+  $("wlView").style.display = activeTab === "wl" ? "" : "none";
+  $("qView").style.display = activeTab === "q" ? "" : "none";
+  $("valView").style.display = activeTab === "val" ? "" : "none";
+}
+const segState = { wlMode: "abs", qSlope: "fixed", qCal: "uncal" };
+function wireSeg(id, key) {
+  document.querySelectorAll(`#${id} button`).forEach(b => b.onclick = () => {
+    segState[key] = b.dataset.v;
+    document.querySelectorAll(`#${id} button`).forEach(x => x.classList.toggle("active", x === b));
+    renderCharts();
+  });
+}
+wireSeg("wlModeSeg", "wlMode"); wireSeg("qSlopeSeg", "qSlope"); wireSeg("qCalSeg", "qCal");
+
+/* ---- resizable panel (desktop) ---- */
+const panelEl = $("panel"), resizerEl = $("panelResizer"), PANEL_W_DEFAULT = 580;
+let savedPanelW = NaN;
+try { savedPanelW = parseInt(localStorage.getItem("panelW"), 10); } catch (e) {}
+if (savedPanelW >= 380 && savedPanelW <= window.innerWidth * 0.92 && window.innerWidth > 720) {
+  panelEl.style.width = `${savedPanelW}px`;
+}
+let plotResizeQueued = false;
+function resizeVisiblePlots() {
+  for (const id of ["wlPlot", "qPlot", "valPlot", "profPlot"]) {
+    const el = $(id);
+    if (el && el.offsetParent !== null && el.classList.contains("js-plotly-plot")) Plotly.Plots.resize(el);
+  }
+}
+window.addEventListener("resize", () => { resizeVisiblePlots(); updateScaleBar(); });
+window.addEventListener("orientationchange", () => setTimeout(resizeVisiblePlots, 300));
+panelEl.addEventListener("transitionend", e => { if (e.propertyName === "transform") resizeVisiblePlots(); });
+resizerEl.addEventListener("pointerdown", e => {
+  e.preventDefault(); resizerEl.setPointerCapture(e.pointerId);
+  resizerEl.classList.add("dragging"); panelEl.style.transition = "none"; document.body.style.userSelect = "none";
+  const onMove = ev => {
+    const w = Math.min(Math.max(window.innerWidth - ev.clientX, 380), Math.round(window.innerWidth * 0.92));
+    panelEl.style.width = `${w}px`;
+    if (!plotResizeQueued) { plotResizeQueued = true; requestAnimationFrame(() => { plotResizeQueued = false; resizeVisiblePlots(); }); }
+  };
+  const onUp = () => {
+    resizerEl.removeEventListener("pointermove", onMove); resizerEl.removeEventListener("pointerup", onUp);
+    resizerEl.classList.remove("dragging"); panelEl.style.transition = ""; document.body.style.userSelect = "";
+    try { localStorage.setItem("panelW", parseInt(panelEl.style.width, 10) || PANEL_W_DEFAULT); } catch (er) {}
+    resizeVisiblePlots();
+  };
+  resizerEl.addEventListener("pointermove", onMove); resizerEl.addEventListener("pointerup", onUp);
+});
+resizerEl.addEventListener("dblclick", () => {
+  panelEl.style.width = `${PANEL_W_DEFAULT}px`;
+  try { localStorage.setItem("panelW", PANEL_W_DEFAULT); } catch (e) {}
+  resizeVisiblePlots();
+});
+
+/* ================= panel modes and longitudinal profile ================= */
 function setPanelMode(mode) {
   const station = mode === "station";
-  document.getElementById("liveChips").style.display = station ? "" : "none";
-  document.getElementById("tabs").style.display = station ? "" : "none";
-  document.getElementById("wlView").style.display = station && activeTab === "wl" ? "" : "none";
-  document.getElementById("qView").style.display = station && activeTab === "q" ? "" : "none";
-  document.getElementById("profileView").style.display = station ? "none" : "";
+  $("nowStrip").style.display = station ? "" : "none";
+  $("statusLine").style.display = station ? "" : "none";
+  $("tabs").style.display = station ? "" : "none";
+  if (station) showView(); else { $("wlView").style.display = $("qView").style.display = $("valView").style.display = "none"; }
+  $("profileView").style.display = station ? "none" : "";
 }
-
 let profileSeg = "all";
 const SEGMENTS = (() => {
   const s = PROF.stations_km;
   return {
     all: { label: "Whole reach", range: PROF.extent_km },
-    kb: { label: "Kaub → Bonn", range: [s.kaub, s.bonn] },
-    bd: { label: "Bonn → Duisburg-Ruhrort", range: [s.bonn, s.duisburg_ruhrort] },
-    dw: { label: "Duisburg-Ruhrort → Wesel", range: [s.duisburg_ruhrort, s.wesel] },
+    kb: { label: "Kaub to Bonn", range: [s.kaub, s.bonn] },
+    bd: { label: "Bonn to Duisburg-Ruhrort", range: [s.bonn, s.duisburg_ruhrort] },
+    dw: { label: "Duisburg-Ruhrort to Wesel", range: [s.duisburg_ruhrort, s.wesel] },
   };
 })();
-const segBtnsEl = document.getElementById("segBtns");
+const segBtnsEl = $("segBtns");
 for (const [k, seg] of Object.entries(SEGMENTS)) {
   const b = document.createElement("button");
-  b.className = "segBtn"; b.dataset.seg = k; b.textContent = seg.label;
-  b.onclick = () => setSegment(k);
-  segBtnsEl.appendChild(b);
+  b.className = "btn"; b.dataset.seg = k; b.textContent = seg.label;
+  b.onclick = () => setSegment(k); segBtnsEl.appendChild(b);
 }
-document.getElementById("hiDates").textContent = PROF.swot_high.dates.join(", ");
-document.getElementById("loDates").textContent = PROF.swot_low.dates.join(", ");
+$("hiDates").textContent = PROF.swot_high.dates.join(", ");
+$("loDates").textContent = PROF.swot_low.dates.join(", ");
 
 function openProfile() {
   current = null;
-  document.querySelectorAll(".chip[data-key]").forEach(c =>
-    c.classList.toggle("active", c.dataset.key === "__profile"));
-  document.getElementById("stName").textContent = "Longitudinal profile";
-  document.getElementById("stMeta").textContent =
-    `${PROF.label} · DEM thalweg & SWOT water surface`;
-  document.getElementById("panel").classList.add("open");
-  document.body.classList.add("panelOpen");
-  setPanelMode("profile");
-  setSegment(profileSeg);
+  document.querySelectorAll(".stTile").forEach(c => c.classList.remove("active"));
+  $("profileBtn").classList.add("active");
+  $("stName").textContent = "Longitudinal profile";
+  $("stMeta").textContent = `${PROF.label} · DEM thalweg and SWOT water surface`;
+  $("panel").classList.add("open"); document.body.classList.add("panelOpen");
+  setPanelMode("profile"); setSegment(profileSeg);
 }
-
 function setSegment(k) {
   profileSeg = k;
-  segBtnsEl.querySelectorAll(".segBtn").forEach(b =>
-    b.classList.toggle("active", b.dataset.seg === k));
-  renderProfile();
-  flyToSegment(SEGMENTS[k].range);
+  segBtnsEl.querySelectorAll(".btn").forEach(b => b.classList.toggle("active", b.dataset.seg === k));
+  renderProfile(); flyToSegment(SEGMENTS[k].range);
 }
-
 function flyToSegment([a, b]) {
   let w = 180, e = -180, s = 90, n = -90;
   for (const p of PROF.thalweg_geom) {
     if (p[2] < a - 1 || p[2] > b + 1) continue;
-    w = Math.min(w, p[0]); e = Math.max(e, p[0]);
-    s = Math.min(s, p[1]); n = Math.max(n, p[1]);
+    w = Math.min(w, p[0]); e = Math.max(e, p[0]); s = Math.min(s, p[1]); n = Math.max(n, p[1]);
   }
   if (e < w) return;
-  viewer.camera.flyTo({
-    destination: Cesium.Rectangle.fromDegrees(w - 0.06, s - 0.04, e + 0.06, n + 0.04),
-    duration: 2.0,
-  });
+  viewer.camera.flyTo({ destination: Cesium.Rectangle.fromDegrees(w - 0.06, s - 0.04, e + 0.06, n + 0.04), duration: 2.0 });
 }
-
+function interpAt(pairs, x) {                       // pairs sorted by x -> linear y
+  if (!pairs.length) return null;
+  if (x <= pairs[0][0]) return pairs[0][1];
+  if (x >= pairs[pairs.length - 1][0]) return pairs[pairs.length - 1][1];
+  let lo = 0, hi = pairs.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (pairs[m][0] <= x) lo = m; else hi = m; }
+  const [x0, y0] = pairs[lo], [x1, y1] = pairs[hi];
+  return y0 + (y1 - y0) * (x - x0) / ((x1 - x0) || 1);
+}
 function renderProfile() {
   const [a, b] = SEGMENTS[profileSeg].range;
   const pad = Math.max((b - a) * 0.02, 0.5);
   const xr = [Math.max(a - pad, 0), b + pad];
   const inR = k => k >= xr[0] && k <= xr[1];
-
   let ymin = Infinity, ymax = -Infinity;
-  const scan = (pairs, ki, vi) => { for (const p of pairs) if (inR(p[ki])) {
-    ymin = Math.min(ymin, p[vi]); ymax = Math.max(ymax, p[vi]); } };
-  scan(PROF.thalweg, 0, 1); scan(PROF.centerline_dem, 0, 1);
-  scan(PROF.swot_high.pts, 0, 1); scan(PROF.swot_low.pts, 0, 1);
+  const scan = (pairs, ki, vi) => { for (const p of pairs) if (inR(p[ki])) { ymin = Math.min(ymin, p[vi]); ymax = Math.max(ymax, p[vi]); } };
+  scan(PROF.thalweg, 0, 1); scan(PROF.centerline_dem, 0, 1); scan(PROF.swot_high.pts, 0, 1); scan(PROF.swot_low.pts, 0, 1);
   const ypad = (ymax - ymin) * 0.07 || 2;
 
+  const bedX = PROF.thalweg.map(p => p[0]), bedY = PROF.thalweg.map(p => p[1]);
+  const highPairs = PROF.swot_high.pts.map(p => [p[0], p[1]]);
+  const waterY = bedX.map((x, i) => { const w = interpAt(highPairs, x); return w != null && w > bedY[i] ? w : bedY[i]; });
   const traces = [
-    { x: PROF.thalweg.map(p => p[0]), y: PROF.thalweg.map(p => p[1]),
-      name: "Thalweg bed (DEM)", mode: "lines",
-      line: { color: "#92400e", width: 1.6 },
-      fill: "tozeroy", fillcolor: "rgba(146,64,14,0.10)" },
+    { x: bedX, y: bedY, name: "Thalweg bed (DEM)", mode: "lines", line: { color: "#d4a373", width: 1.6 },
+      fill: "tozeroy", fillcolor: "rgba(212,163,115,0.10)", hovertemplate: "km %{x:.1f} · bed %{y:.1f} m<extra></extra>" },
+    { x: bedX, y: waterY, name: "Water column at high flow", mode: "lines",
+      line: { color: "rgba(76,201,240,0.0)", width: 0 }, fill: "tonexty", fillcolor: "rgba(76,201,240,0.16)", hoverinfo: "skip" },
     { x: PROF.centerline_dem.map(p => p[0]), y: PROF.centerline_dem.map(p => p[1]),
-      name: "DEM along SWOT centerline", mode: "lines",
-      line: { color: "#94a3b8", width: 1.1, dash: "dot" } },
-    { x: PROF.swot_high.pts.map(p => p[0]), y: PROF.swot_high.pts.map(p => p[1]),
-      customdata: PROF.swot_high.pts.map(p => p[2]),
-      name: "SWOT WSE (high flow)", mode: "markers",
-      marker: { color: "#2563eb", size: 4 },
+      name: "DEM along SWOT centreline", mode: "lines", line: { color: COL.faint, width: 1.1, dash: "dot" } },
+    { x: PROF.swot_high.pts.map(p => p[0]), y: PROF.swot_high.pts.map(p => p[1]), customdata: PROF.swot_high.pts.map(p => p[2]),
+      name: "SWOT WSE, high flow", mode: "markers", marker: { color: COL.accent, size: 4 },
       hovertemplate: "km %{x:.2f} · %{y:.2f} m · %{customdata}<extra>SWOT high</extra>" },
-    { x: PROF.swot_low.pts.map(p => p[0]), y: PROF.swot_low.pts.map(p => p[1]),
-      customdata: PROF.swot_low.pts.map(p => p[2]),
-      name: "SWOT WSE (low flow)", mode: "markers",
-      marker: { color: "#ea580c", size: 4 },
+    { x: PROF.swot_low.pts.map(p => p[0]), y: PROF.swot_low.pts.map(p => p[1]), customdata: PROF.swot_low.pts.map(p => p[2]),
+      name: "SWOT WSE, low flow", mode: "markers", marker: { color: COL.dahiti, size: 4 },
       hovertemplate: "km %{x:.2f} · %{y:.2f} m · %{customdata}<extra>SWOT low</extra>" },
   ];
-
   const shapes = [], annotations = [];
-  for (const [key, km] of Object.entries(PROF.stations_km)) {
-    if (!inR(km)) continue;
+  const stationsInRange = Object.entries(PROF.stations_km).filter(([, km]) => inR(km)).sort((p, q) => p[1] - q[1]);
+  stationsInRange.forEach(([key, km], i) => {
     const st = DATA.stations.find(s => s.key === key);
-    shapes.push({ type: "line", x0: km, x1: km, y0: 0, y1: 1, yref: "paper",
-                  line: { color: "#475569", width: 1, dash: "dash" } });
-    annotations.push({ x: km, y: 1, yref: "paper", yanchor: "bottom",
-                       text: st ? st.name : key, showarrow: false,
-                       font: { size: 10.5, color: "#475569" } });
-  }
-
-  Plotly.react("profPlot", traces, {
-    margin: { l: 56, r: 16, t: 30, b: 96 },
+    shapes.push({ type: "line", x0: km, x1: km, y0: 0, y1: 1, yref: "paper", line: { color: COL.faint, width: 1, dash: "dash" } });
+    annotations.push({ x: km, y: 1, yref: "paper", yanchor: "bottom", yshift: (i % 2) * 14, text: st ? st.name : key,
+                       showarrow: false, font: { size: 10.5, color: COL.muted }, bgcolor: "rgba(16,26,46,0.85)" });
+  });
+  Plotly.react("profPlot", traces, plotLayout({
+    margin: { l: 54, r: 14, t: 34, b: 100 },
+    legend: { orientation: "h", x: 0, y: -0.2, yanchor: "top" },
     hovermode: "closest",
-    legend: { orientation: "h", y: -0.28, yanchor: "top", x: 0, font: { size: 11 } },
-    xaxis: { title: { text: "Chainage (km, 0 = Bingen)" }, range: xr, gridcolor: "#eef2f7" },
-    yaxis: { title: { text: "Elevation (m)" }, range: [ymin - ypad, ymax + ypad],
-             gridcolor: "#eef2f7" },
+    xaxis: { title: { text: "Chainage (km, 0 = Bingen)" }, range: xr },
+    yaxis: { title: { text: "Elevation (m)" }, range: [ymin - ypad, ymax + ypad] },
     shapes, annotations,
-    paper_bgcolor: "white", plot_bgcolor: "white", font: { size: 12 },
-  }, PLOT_CONFIG);
+  }), PLOT_CONFIG);
 }
 
-/* ================= charts ================= */
-const PLOT_CONFIG = { displaylogo: false, responsive: true,
-  modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] };
-
-function baseLayout(extra) {
-  return Object.assign({
-    margin: { l: 58, r: 58, t: 42, b: 40 },
+/* ================= chart theme ================= */
+const PLOT_CONFIG = { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] };
+const GRID = "rgba(148,163,184,0.13)";
+function axisBase() {
+  return { gridcolor: GRID, zerolinecolor: "rgba(148,163,184,0.25)", linecolor: "rgba(0,0,0,0)",
+           tickcolor: "rgba(0,0,0,0)", tickfont: { color: COL.muted, size: 11 },
+           title: { font: { color: COL.muted, size: 11.5 } } };
+}
+function deepAssign(t, s) {
+  for (const k of Object.keys(s)) {
+    if (s[k] && typeof s[k] === "object" && !Array.isArray(s[k]) && t[k] && typeof t[k] === "object") deepAssign(t[k], s[k]);
+    else t[k] = s[k];
+  }
+  return t;
+}
+function plotLayout(extra) {
+  const base = {
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: "IBM Plex Sans, system-ui, sans-serif", size: 12, color: COL.text },
+    margin: { l: 56, r: 56, t: 48, b: 40 },
     hovermode: "x unified",
-    legend: { orientation: "h", y: -0.16, yanchor: "top", x: 0, font: { size: 11 } },
-    xaxis: {
-      type: "date", gridcolor: "#eef2f7",
+    hoverlabel: { bgcolor: "#172236", bordercolor: "rgba(148,163,184,0.35)", font: { family: "IBM Plex Sans, system-ui, sans-serif", size: 12, color: COL.text } },
+    legend: { orientation: "h", x: 0, y: 1.02, yanchor: "bottom", font: { size: 11, color: COL.muted }, bgcolor: "rgba(0,0,0,0)" },
+    modebar: { bgcolor: "rgba(0,0,0,0)", color: COL.faint, activecolor: COL.accent },
+    xaxis: axisBase(), yaxis: axisBase(),
+  };
+  return deepAssign(base, extra);
+}
+function timeLayout(extra) {
+  return plotLayout(deepAssign({
+    xaxis: { type: "date",
       rangeselector: { buttons: [
-        { count: 30, label: "30d", step: "day", stepmode: "backward" },
-        { count: 90, label: "90d", step: "day", stepmode: "backward" },
-        { count: 1, label: "1y", step: "year", stepmode: "backward" },
-        { step: "all", label: "All" }], font: { size: 11 } },
-    },
-    paper_bgcolor: "white", plot_bgcolor: "white", font: { size: 12 },
-  }, extra);
+        { count: 30, label: "30 d", step: "day", stepmode: "backward" },
+        { count: 90, label: "90 d", step: "day", stepmode: "backward" },
+        { count: 1, label: "1 y", step: "year", stepmode: "backward" },
+        { step: "all", label: "All" }],
+        bgcolor: "#172236", activecolor: "#245a70", bordercolor: "rgba(148,163,184,0.3)",
+        font: { size: 11, color: COL.text }, x: 1, xanchor: "right", y: 1.02, yanchor: "bottom" } },
+    legend: { orientation: "h", x: 0, y: -0.14, yanchor: "top" },
+    margin: { t: 44, b: 96 },
+  }, extra));
+}
+function nowMarker(lv, unit, fmt) {
+  const w = unit === "m" ? lv && lv.wNow : lv && lv.qNow;
+  if (!w) return { shapes: [], annotations: [] };
+  return {
+    shapes: [{ type: "line", x0: w.t, x1: w.t, y0: 0, y1: 1, yref: "paper", line: { color: COL.live, width: 1, dash: "dot" } }],
+    annotations: [{ x: w.t, y: 0.02, yref: "paper", yanchor: "bottom", text: `now ${fmt(w.v)} ${unit}`, showarrow: false,
+                    font: { size: 10.5, color: COL.live }, xanchor: "right", xshift: -5,
+                    bgcolor: "rgba(16,26,46,0.75)", borderpad: 2 }],
+  };
+}
+function liveBand(lv) {
+  const s = lv && lv.w && lv.w.length ? lv.w : (lv && lv.q && lv.q.length ? lv.q : null);
+  if (!s) return [];
+  return [{ type: "rect", xref: "x", yref: "paper", x0: s[0][0], x1: s[s.length - 1][0], y0: 0, y1: 1,
+            fillcolor: "rgba(52,211,153,0.07)", line: { width: 0 }, layer: "below" }];
 }
 const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
-
 function renderCharts() {
   if (!current) return;
-  if (activeTab === "wl") renderWL(); else renderQ();
+  if (activeTab === "wl") renderWL(); else if (activeTab === "q") renderQ(); else renderVal();
 }
 
+/* ================= water level ================= */
 function renderWL() {
-  const st = current, lv = live[st.key];
-  const anom = document.querySelector("input[name=wlMode]:checked").value === "anom";
-
-  const insX = st.insitu_wl_daily.map(p => p[0]);
-  let insY = st.insitu_wl_daily.map(p => p[1]);
-  const dhX = st.dahiti_wl.map(p => p[0]);
-  let dhY = st.dahiti_wl.map(p => p[1]);
+  const st = current, lv = live[st.key], anom = segState.wlMode === "anom";
+  const insX = st.insitu_wl_daily.map(p => p[0]); let insY = st.insitu_wl_daily.map(p => p[1]);
+  const dhX = st.dahiti_wl.map(p => p[0]); let dhY = st.dahiti_wl.map(p => p[1]);
   const dhE = st.dahiti_wl.map(p => p[2]);
   let liveX = [], liveY = [];
   if (lv && lv.w) { liveX = lv.w.map(p => p[0]); liveY = lv.w.map(p => p[1]); }
-
   let insOff = 0, dhOff = 0;
   if (anom) {
-    insOff = mean(insY); dhOff = mean(dhY);
-    insY = insY.map(v => +(v - insOff).toFixed(3));
-    dhY = dhY.map(v => +(v - dhOff).toFixed(3));
+    insOff = mean(insY); dhOff = dhY.length ? mean(dhY) : 0;
+    insY = insY.map(v => +(v - insOff).toFixed(3)); dhY = dhY.map(v => +(v - dhOff).toFixed(3));
     liveY = liveY.map(v => +(v - insOff).toFixed(3));
   }
-
   const traces = [
-    { x: insX, y: insY, name: "In-situ PegelOnline (daily)", mode: "lines",
-      line: { color: COL.insitu, width: 1.4 }, yaxis: "y" },
-    { x: liveX, y: liveY, name: "PegelOnline live (30 d)", mode: "lines",
-      line: { color: COL.live, width: 2 }, yaxis: "y" },
-    { x: dhX, y: dhY, name: "DAHITI altimetry", mode: "markers",
-      marker: { color: COL.dahiti, size: 7 },
-      error_y: { type: "data", array: dhE, visible: true, color: COL.dahiti,
-                 thickness: 1, width: 2 },
-      yaxis: anom ? "y" : "y2" },
+    { x: insX, y: insY, name: "In-situ PegelOnline, daily", mode: "lines", line: { color: COL.insitu, width: 1.4 }, yaxis: "y" },
+    { x: liveX, y: liveY, name: "PegelOnline live, 30 days", mode: "lines", line: { color: COL.live, width: 2.2 }, yaxis: "y" },
+    { x: dhX, y: dhY, name: "DAHITI altimetry", mode: "markers", marker: { color: COL.dahiti, size: 6.5, line: { color: "#0a1020", width: 0.5 } },
+      error_y: { type: "data", array: dhE, visible: true, color: "rgba(251,191,36,0.55)", thickness: 1.2, width: 3 }, yaxis: anom ? "y" : "y2" },
   ];
-  const layout = baseLayout({
-    yaxis: { title: { text: anom ? "Water-level anomaly (m)" : "In-situ stage (m, gauge datum)" },
-             gridcolor: "#eef2f7", zeroline: anom },
+  const nm = nowMarker(lv, "m", v => v.toFixed(2));
+  const layout = timeLayout({
+    yaxis: { title: { text: anom ? "Water-level anomaly (m)" : "In-situ stage (m, gauge datum)" }, zeroline: anom },
+    shapes: [...liveBand(lv), ...nm.shapes], annotations: nm.annotations,
   });
-  if (!anom) layout.yaxis2 = {
-    title: { text: "DAHITI water level (m)" }, overlaying: "y", side: "right", showgrid: false };
+  if (!anom) layout.yaxis2 = deepAssign(axisBase(), { title: { text: "DAHITI water level (m)" }, overlaying: "y", side: "right", showgrid: false });
+  else layout.margin.r = 20;
   Plotly.react("wlPlot", traces, layout, PLOT_CONFIG);
 
-  const m = st.dahiti_metrics, g = document.getElementById("wlMetrics");
-  g.innerHTML = m ? [
-    ["Matched passes", m.n], ["Pearson r", m.r.toFixed(3)],
-    ["RMSE", m.rmse_m.toFixed(2) + " m"], ["Bias", m.bias_m.toFixed(2) + " m"],
-    ["Datum offset", m.datum_offset_m.toFixed(2) + " m"],
-  ].map(([k, v]) => `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("")
+  const m = st.dahiti_metrics, g = $("wlMetrics");
+  g.innerHTML = m ? [["Matched passes", m.n], ["Pearson r", m.r.toFixed(3)], ["RMSE", m.rmse_m.toFixed(2) + " m"],
+    ["Bias", m.bias_m.toFixed(2) + " m"], ["Datum offset", m.datum_offset_m.toFixed(2) + " m"]]
+    .map(([k, v]) => `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("")
     : "<i>no metrics file</i>";
 }
 
+/* ================= discharge ================= */
 function qVariant() {
-  const slope = document.querySelector("input[name=qSlope]:checked").value;
-  const cal = document.querySelector("input[name=qCal]:checked").value;
+  const slope = segState.qSlope, cal = segState.qCal;
   const field = (slope === "fixed" ? "q_fixed" : "q_swot") + (cal === "cal" ? "_cal" : "");
-  const label = `SWOT modified Manning (${slope === "fixed" ? "fixed slope" : "SWOT slope"}, ` +
-                `${cal === "cal" ? "calibrated n" : "n=0.030"})`;
-  return { field, label };
+  const ufield = slope === "fixed" ? "u_rel_fixed" : "u_rel";
+  const label = `SWOT Manning (${slope === "fixed" ? "fixed S" : "SWOT S"}, ${cal === "cal" ? "calibrated n" : "n 0.030"})`;
+  return { field, ufield, label };
 }
-
-function renderQ() {
-  const st = current, lv = live[st.key];
-  const { field, label } = qVariant();
-
-  const swotX = [], swotY = [];
-  for (const p of st.swot_manning) if (p[field] != null) { swotX.push(p.t); swotY.push(p[field]); }
-
-  const traces = [
-    { x: st.insitu_q_daily.map(p => p[0]), y: st.insitu_q_daily.map(p => p[1]),
-      name: "In-situ PegelOnline (daily)", mode: "lines",
-      line: { color: COL.insitu, width: 1.4 } },
-  ];
-  if (lv && lv.q) traces.push({
-    x: lv.q.map(p => p[0]), y: lv.q.map(p => p[1]), name: "PegelOnline live (30 d)",
-    mode: "lines", line: { color: COL.live, width: 2 } });
-  traces.push({ x: swotX, y: swotY, name: label, mode: "markers",
-    marker: { color: COL.swot, size: 9, symbol: "diamond",
-              line: { color: "white", width: 1 } } });
-  if (st.glofas_q_daily.length) traces.push({
-    x: st.glofas_q_daily.map(p => p[0]), y: st.glofas_q_daily.map(p => p[1]),
-    name: "GloFAS", mode: "lines", visible: "legendonly",
-    line: { color: COL.glofas, width: 1.2, dash: "dot" } });
-  if (st.geoglows_q_daily.length) traces.push({
-    x: st.geoglows_q_daily.map(p => p[0]), y: st.geoglows_q_daily.map(p => p[1]),
-    name: "GEOGloWS", mode: "lines", visible: "legendonly",
-    line: { color: COL.geoglows, width: 1.2, dash: "dot" } });
-
-  Plotly.react("qPlot", traces,
-    baseLayout({ yaxis: { title: { text: "Discharge (m³/s)" }, gridcolor: "#eef2f7",
-                          rangemode: "tozero" } }),
-    PLOT_CONFIG);
-
-  /* matched-pair skill of the selected variant, computed client-side */
+function matchedPairs(st, field) {
   const qByDate = new Map(st.insitu_q_daily);
-  const obs = [], sim = [];
+  const obs = [], sim = [], when = [];
   for (const p of st.swot_manning) {
     const v = p[field]; if (v == null) continue;
     const o = qByDate.get(p.t.slice(0, 10));
-    if (o != null) { obs.push(o); sim.push(v); }
+    if (o != null) { obs.push(o); sim.push(v); when.push(p.t.slice(0, 10)); }
   }
-  const g = document.getElementById("qMetrics");
-  if (obs.length < 3) { g.innerHTML = "<i>not enough matched passes</i>"; return; }
-  const mo = mean(obs), ms = mean(sim), n = obs.length;
+  return { obs, sim, when };
+}
+function skill(obs, sim) {
+  const n = obs.length, mo = mean(obs), ms = mean(sim);
   let cov = 0, vo = 0, vs = 0, sse = 0;
-  for (let i = 0; i < n; i++) {
-    cov += (obs[i] - mo) * (sim[i] - ms);
-    vo += (obs[i] - mo) ** 2; vs += (sim[i] - ms) ** 2;
-    sse += (sim[i] - obs[i]) ** 2;
-  }
+  for (let i = 0; i < n; i++) { cov += (obs[i] - mo) * (sim[i] - ms); vo += (obs[i] - mo) ** 2; vs += (sim[i] - ms) ** 2; sse += (sim[i] - obs[i]) ** 2; }
   const r = cov / Math.sqrt(vo * vs);
-  const rmse = Math.sqrt(sse / n);
-  const bias = ms - mo;
-  const nse = 1 - sse / vo;
-  const kge = 1 - Math.sqrt((r - 1) ** 2 + (Math.sqrt(vs / n) / Math.sqrt(vo / n) - 1) ** 2 +
-                            (ms / mo - 1) ** 2);
-  g.innerHTML = [
-    ["Matched passes", n], ["Pearson r", r.toFixed(3)],
-    ["RMSE", Math.round(rmse) + " m³/s"], ["Bias", Math.round(bias) + " m³/s"],
-    ["NSE", nse.toFixed(3)], ["KGE", kge.toFixed(3)],
-  ].map(([k, v]) => `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+  const kge = 1 - Math.sqrt((r - 1) ** 2 + (Math.sqrt(vs / n) / Math.sqrt(vo / n) - 1) ** 2 + (ms / mo - 1) ** 2);
+  const slope = cov / vo, intercept = ms - slope * mo;
+  return { n, r, rmse: Math.sqrt(sse / n), bias: ms - mo, nse: 1 - sse / vo, kge, slope, intercept, r2: r * r };
+}
+function metricsHtml(k) {
+  return [["Matched passes", k.n], ["Pearson r", k.r.toFixed(3)], ["RMSE", Math.round(k.rmse).toLocaleString() + " m³/s"],
+    ["Bias", Math.round(k.bias).toLocaleString() + " m³/s"], ["NSE", k.nse.toFixed(3)], ["KGE", k.kge.toFixed(3)]]
+    .map(([kk, v]) => `<div class="metric"><div class="v">${v}</div><div class="k">${kk}</div></div>`).join("");
+}
+function renderQ() {
+  const st = current, lv = live[st.key], { field, ufield, label } = qVariant();
+  const swotX = [], swotY = [], swotE = [];
+  let hasU = false;
+  for (const p of st.swot_manning) if (p[field] != null) {
+    swotX.push(p.t); swotY.push(p[field]);
+    const u = p[ufield]; if (u != null) { hasU = true; swotE.push(+(u * p[field]).toFixed(1)); } else swotE.push(null);
+  }
+  const traces = [
+    { x: st.insitu_q_daily.map(p => p[0]), y: st.insitu_q_daily.map(p => p[1]), name: "In-situ PegelOnline, daily",
+      mode: "lines", line: { color: COL.insitu, width: 1.4 } },
+  ];
+  if (lv && lv.q) traces.push({ x: lv.q.map(p => p[0]), y: lv.q.map(p => p[1]), name: "PegelOnline live, 30 days",
+    mode: "lines", line: { color: COL.live, width: 2.2 } });
+  if (st.glofas_q_daily.length) traces.push({ x: st.glofas_q_daily.map(p => p[0]), y: st.glofas_q_daily.map(p => p[1]),
+    name: "GloFAS", mode: "lines", opacity: 0.6, line: { color: COL.glofas, width: 1, dash: "dot" } });
+  if (st.geoglows_q_daily.length) traces.push({ x: st.geoglows_q_daily.map(p => p[0]), y: st.geoglows_q_daily.map(p => p[1]),
+    name: "GEOGloWS", mode: "lines", opacity: 0.6, line: { color: COL.geoglows, width: 1, dash: "dot" } });
+  traces.push({ x: swotX, y: swotY, name: label, mode: "markers",
+    marker: { color: COL.swot, size: 8, symbol: "diamond", line: { color: "#0a1020", width: 0.8 } },
+    error_y: hasU ? { type: "data", array: swotE, visible: true, color: "rgba(251,113,133,0.55)", thickness: 1.2, width: 3 } : undefined,
+    hovertemplate: hasU ? "%{y:,.0f} ± %{error_y.array:,.0f} m³/s<extra>SWOT</extra>" : "%{y:,.0f} m³/s<extra>SWOT</extra>" });
+  const nm = nowMarker(lv, "m³/s", v => Math.round(v).toLocaleString());
+  Plotly.react("qPlot", traces, timeLayout({
+    yaxis: { title: { text: "Discharge (m³/s)" }, rangemode: "tozero" }, margin: { r: 20 },
+    shapes: [...liveBand(lv), ...nm.shapes], annotations: nm.annotations,
+  }), PLOT_CONFIG);
+
+  const { obs, sim } = matchedPairs(st, field), g = $("qMetrics");
+  g.innerHTML = obs.length < 3 ? "<i>not enough matched passes</i>" : metricsHtml(skill(obs, sim));
 }
 
-/* deep-link support: index.html#kaub opens that station, #profile the long profile */
-const hash = location.hash.replace("#", "");
-if (DATA.stations.some(s => s.key === hash)) setTimeout(() => selectStation(hash), 800);
-else if (hash === "profile") setTimeout(openProfile, 800);
+/* ================= validation scatter ================= */
+function renderVal() {
+  const st = current, { field, label } = qVariant();
+  const { obs, sim, when } = matchedPairs(st, field), g = $("valMetrics");
+  if (obs.length < 3) { Plotly.purge("valPlot"); g.innerHTML = "<i>not enough matched passes</i>"; return; }
+  const k = skill(obs, sim);
+  const lo = 0, hi = Math.max(...obs, ...sim) * 1.08;
+  const traces = [
+    { x: [lo, hi], y: [lo, hi], name: "1:1", mode: "lines", line: { color: COL.faint, width: 1, dash: "dash" }, hoverinfo: "skip" },
+    { x: [lo, hi], y: [k.intercept, k.intercept + k.slope * hi], name: "Least-squares fit", mode: "lines",
+      line: { color: COL.accent, width: 1.6 }, hoverinfo: "skip" },
+    { x: obs, y: sim, customdata: when, name: label, mode: "markers",
+      marker: { color: COL.swot, size: 8, symbol: "diamond", line: { color: "#0a1020", width: 0.8 } },
+      hovertemplate: "in-situ %{x:,.0f} · SWOT %{y:,.0f} m³/s<br>%{customdata}<extra></extra>" },
+  ];
+  const eq = `y = ${k.slope.toFixed(2)} x ${k.intercept >= 0 ? "+" : "−"} ${Math.abs(Math.round(k.intercept)).toLocaleString()},  R² = ${k.r2.toFixed(3)}`;
+  Plotly.react("valPlot", traces, plotLayout({
+    hovermode: "closest", margin: { l: 60, r: 20, t: 48, b: 46 },
+    xaxis: { title: { text: "In-situ discharge, same-day mean (m³/s)" }, range: [lo, hi] },
+    yaxis: { title: { text: "SWOT discharge (m³/s)" }, range: [lo, hi], scaleanchor: "x", scaleratio: 1 },
+    annotations: [{ x: 0.03, y: 0.97, xref: "paper", yref: "paper", xanchor: "left", yanchor: "top", text: eq,
+                    showarrow: false, font: { size: 11.5, color: COL.accent, family: "IBM Plex Mono, monospace" },
+                    bgcolor: "rgba(16,26,46,0.8)", borderpad: 4 }],
+  }), PLOT_CONFIG);
+  g.innerHTML = metricsHtml(k);
+}
+
+/* ================= loader and intro flight ================= */
+const loaderState = { tiles: false, live: false, done: false };
+let tileEvents = 0;
+viewer.scene.globe.tileLoadProgressEvent.addEventListener(n => {
+  tileEvents++;
+  if (n === 0 && tileEvents > 1 && !loaderState.tiles) { loaderState.tiles = true; maybeHideLoader(); }
+});
+setTimeout(() => { loaderState.tiles = true; loaderState.live = true; maybeHideLoader(); }, 7000);
+function maybeHideLoader() {
+  if (loaderState.done || !(loaderState.tiles && loaderState.live)) return;
+  loaderState.done = true;
+  $("loader").classList.add("hide");
+  setTimeout(() => { $("loader").remove(); }, 700);
+  startIntro();
+}
+
+/* deep links: #kaub, #bonn:q, #wesel:val, #profile */
+const [hash, hashTab] = location.hash.replace("#", "").split(":");
+let introSeen = false;
+try { introSeen = sessionStorage.getItem("introSeen") === "1"; } catch (e) {}
+function startIntro() {
+  const deepLink = DATA.stations.some(s => s.key === hash) || hash === "profile";
+  if (deepLink) {
+    if (hash === "profile") { openProfile(); return; }
+    if (["wl", "q", "val"].includes(hashTab)) {
+      activeTab = hashTab;
+      document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x.dataset.tab === hashTab));
+    }
+    selectStation(hash); return;
+  }
+  if (REDUCED_MOTION || introSeen) return;
+  try { sessionStorage.setItem("introSeen", "1"); } catch (e) {}
+  const skip = $("skipIntro"); skip.style.display = "block";
+  let cancelled = false;
+  const end = () => {
+    if (cancelled) return; cancelled = true;
+    skip.style.display = "none";
+    window.removeEventListener("pointerdown", end); window.removeEventListener("keydown", end); window.removeEventListener("wheel", end);
+    viewer.camera.cancelFlight();
+    viewer.camera.flyTo({ ...HOME, duration: 1.2 });
+  };
+  skip.onclick = end;
+  window.addEventListener("pointerdown", end, { once: true }); window.addEventListener("keydown", end, { once: true });
+  window.addEventListener("wheel", end, { once: true, passive: true });
+  // leg 1: low over the Bingen gorge looking north; leg 2: climb along the reach to Wesel; leg 3: settle at home
+  viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(7.90, 49.86, 9000),
+    orientation: { heading: Cesium.Math.toRadians(345), pitch: Cesium.Math.toRadians(-22), roll: 0 } });
+  viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(7.05, 50.60, 30000),
+    orientation: { heading: Cesium.Math.toRadians(335), pitch: Cesium.Math.toRadians(-30), roll: 0 },
+    duration: 2.6, easingFunction: Cesium.EasingFunction.QUADRATIC_IN_OUT,
+    complete: () => { if (cancelled) return;
+      viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(6.75, 51.35, 70000),
+        orientation: { heading: Cesium.Math.toRadians(340), pitch: Cesium.Math.toRadians(-34), roll: 0 },
+        duration: 2.2, easingFunction: Cesium.EasingFunction.QUADRATIC_IN_OUT,
+        complete: () => { if (cancelled) return;
+          viewer.camera.flyTo({ ...HOME, duration: 1.6, complete: () => { cancelled = true; skip.style.display = "none"; } }); } }); } });
+}
+setTimeout(updateScaleBar, 1500);
+applyCenterline();
 </script>
 </body>
 </html>

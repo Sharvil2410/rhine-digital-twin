@@ -10,18 +10,29 @@ levels and discharge from the PegelOnline API, satellite altimetry from DAHITI, 
 discharge estimates from my MSc thesis at ITC, University of Twente.
 
 **Open it:** <https://sharvil2410.github.io/Rhine-River-Monitoring/> (deep links: `#kaub`, `#bonn`,
-`#duisburg_ruhrort`, `#wesel`, `#profile`).
+`#duisburg_ruhrort`, `#wesel`, `#profile`; add a tab with `#bonn:q` or `#wesel:val`).
 
-![Dashboard screenshot: Bonn gauge on hillshaded terrain with the thalweg and SWOT centreline, live stage and discharge, and the water-level chart](docs/dashboard.jpg)
+![Dashboard screenshot: Bonn gauge on hillshaded terrain with the thalweg and SWOT centreline, live stage and discharge tiles, and the water-level chart](docs/dashboard.jpg)
 
 ## What it shows
 
+- **Station tiles**: every gauge shows its current stage, the percentile of that stage within the
+  2023 to 2026 daily record (low, normal or high water, also encoded in the marker colour on the
+  globe) and the 24-hour trend. A six-second intro flight down the reach runs on first visit and is
+  skippable; it is disabled when the visitor prefers reduced motion.
 - **Water level**: in-situ PegelOnline stage against DAHITI satellite altimetry, as a dual-axis plot or a
-  demeaned anomaly overlay with DAHITI uncertainty bars, plus the thesis validation metrics.
-- **Discharge**: in-situ PegelOnline discharge against SWOT **modified Manning** estimates. Switch
-  between a fixed slope and the SWOT-observed slope, and between literature and calibrated Manning
-  n. GloFAS and GEOGloWS can be toggled in the legend. Matched-pass skill metrics (n, r, RMSE, bias,
-  NSE, KGE) are computed in the browser and agree with the offline pandas analysis.
+  demeaned anomaly overlay with DAHITI uncertainty bars, a marker for the live reading, plus the
+  thesis validation metrics.
+- **Discharge**: in-situ PegelOnline discharge against SWOT **modified Manning** estimates with
+  **one-sigma error bars** from the thesis error propagation (SWOT width, slope and elevation, DEM,
+  Manning n). Switch between a fixed slope and the SWOT-observed slope, and between literature and
+  calibrated Manning n. GloFAS and GEOGloWS are drawn as context. Matched-pass skill metrics (n, r,
+  RMSE, bias, NSE, KGE) are computed in the browser and agree with the offline pandas analysis.
+- **Validation**: SWOT against same-day in-situ discharge as a 1:1 scatter with the least-squares
+  fit and its equation for the selected variant.
+
+![Validation view: SWOT discharge against in-situ discharge with the 1:1 line and the fitted regression](docs/validation.jpg)
+
 - **Live layer**: the current measurement and the last 30 days of stage and discharge are fetched
   from the PegelOnline REST API on every page load, so the twin always shows the river now.
 - **Terrain and DEM drape**: 3D terrain plus a draped DEM that includes echo-sounded channel
