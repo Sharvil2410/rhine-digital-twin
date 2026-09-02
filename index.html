@@ -135,6 +135,7 @@
     background: var(--glass); border: 1px solid var(--glass-border); border-radius: 10px;
     color: var(--text-dim); font-size: 10.5px; padding: 6px 10px; max-width: 420px; }
   #credits b { color: var(--text-light); font-weight: 600; }
+  #credits a, #demLegend a { color: var(--text-light); text-decoration: underline; }
 
   #demLegend { position: absolute; left: 14px; bottom: 92px; z-index: 10; width: 265px;
     background: var(--glass); border: 1px solid var(--glass-border); border-radius: 10px;
@@ -197,12 +198,13 @@
     <div class="bar"></div>
     <div class="lab"><span id="demVmin"></span><span>Elevation (m)</span><span id="demVmax"></span></div>
   </div>
-  <div>DEM incl. echo-sounded bathymetry (PANGAEA.919308)</div>
+  <div>DEM incl. echo-sounded bathymetry (<a href="https://doi.pangaea.de/10.1594/PANGAEA.919308" target="_blank" rel="noopener">PANGAEA.919308</a>)</div>
 </div>
 
 <div id="credits">
   <b>Data:</b> SWOT (NASA/CNES) · DAHITI (DGFI-TUM) · PegelOnline (WSV) · GloFAS (Copernicus) ·
-  GEOGloWS · Imagery: Esri/Maxar · MSc thesis demo, S. Upadhye
+  GEOGloWS · DEM: <a href="https://doi.pangaea.de/10.1594/PANGAEA.919308" target="_blank" rel="noopener">PANGAEA.919308</a> ·
+  Imagery: Esri/Maxar · MSc thesis demo, S. Upadhye
 </div>
 
 <div id="panel">
